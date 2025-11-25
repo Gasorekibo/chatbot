@@ -1,5 +1,5 @@
-import mongoose from 'mongoose';
-import CryptoJS from 'crypto-js';
+const mongoose = require('mongoose');
+const CryptoJS = require('crypto-js');
 
 const employeeSchema = new mongoose.Schema({
   name: { type: String, required: true },
@@ -24,4 +24,4 @@ employeeSchema.methods.getDecryptedToken = function () {
 };
 
 const Employee = mongoose.model('Employee', employeeSchema);
-export default Employee;
+module.exports = Employee;

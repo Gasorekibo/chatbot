@@ -1,53 +1,46 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const Employee = require('../models/Employees');
+const getCalendarData = require('../utils/getCalendarData');
+const dotenv = require('dotenv');
+dotenv.config();
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-const HARDCODED_AVAILABILITY = [
-  { date: "2025-12-01", day: "Monday", time: "10:00 AM", available: true },
-  { date: "2025-12-01", day: "Monday", time: "2:00 PM", available: true },
-  { date: "2025-12-02", day: "Tuesday", time: "11:00 AM", available: true },
-  { date: "2025-12-02", day: "Tuesday", time: "3:30 PM", available: true },
-  { date: "2025-12-02", day: "Tuesday", time: "5:00 PM", available: true },
-  { date: "2025-12-03", day: "Wednesday", time: "9:30 AM", available: false },
-  { date: "2025-12-04", day: "Thursday", time: "1:00 PM", available: true },
-  { date: "2025-12-05", day: "Friday", time: "10:00 AM", available: true },
-  { date: "2025-12-05", day: "Friday", time: "4:00 PM", available: true },
-];
+const STATIC_EMPLOYEE_EMAIL = process.env.EMPLOYEE_EMAIL; 
 
 const systemInstruction = `
-You are a warm, professional, and super helpful customer support assistant for "Moyo tech Solutions".
+You are a warm, professional customer support assistant for "Moyo Tech solutions".
 
 Business details:
-- We help businesses with marketing, web design, and automation.
-- Office hours: Mon–Fri, 9 AM – 6 PM
+- We help businesses with SAP Consulting, Custom Development, Software Quality Assurance and IT Training.
+- Office hours: Mon–Fri, 9 AM – 6 PM (Africa/Kigali timezone)
 - We reply fast and love helping people!
 
 Your job:
 - Answer ANY question naturally and kindly
-- Detect when user asks about availability, booking, schedule, free slots, etc.
-- NEVER invent availability — ONLY use the real slots below
-- If they want to book: ask for name, email/phone, and preferred time
-- Format dates nicely (e.g., "Tuesday, December 2nd")
+- Detect availability queries and ONLY use the REAL free slots below (never invent)
+- For booking: Guide user to provide name, email, preferred time. When ready, output ONLY this JSON (no other text): {"intent": "book", "title": "Meeting Title", "description": "Brief desc", "start": "ISO start time", "end": "ISO end time (1 hour later)", "attendeeEmail": "user@email.com"}
+- If not booking, chat normally
+- Format dates nicely (e.g., "Tuesday, December 2nd at 11:00 AM")
 
-Current REAL availability (next 2 weeks):
-${JSON.stringify(HARDCODED_AVAILABILITY, null, 2)}
+Current REAL availability (next 7 days, free 1-hour slots):
+{{AVAILABILITY}}
 
 Rules:
 - Be friendly and human (use contractions, emojis occasionally)
-- If no slots match, say: "I'm fully booked that day, but here are my next openings..."
-- Never output JSON or code — only speak as the assistant
+- If no slots: "I'm booked then, but here are alternatives..."
+- For booking JSON: Use exact free slot times from above
 `;
 
 const model = genAI.getGenerativeModel({
-  model: "gemini-2.0-flash", 
-  systemInstruction,
+  model: "gemini-2.0-flash",
   generationConfig: {
     temperature: 0.8,
     maxOutputTokens: 1024,
   },
 });
 
-let chat; 
+let chat;
 
 const sendMessage = async (req, res) => {
   try {
@@ -56,33 +49,76 @@ const sendMessage = async (req, res) => {
     if (!message?.trim()) {
       return res.status(400).json({ error: "Message is required" });
     }
+
+    // 1. Fetch real employee & calendar data
+    const employee = await Employee.findOne({ email: STATIC_EMPLOYEE_EMAIL });
+    if (!employee) {
+      return res.status(500).json({ reply: "Sorry, calendar not set up yet. Contact admin." });
+    }
+    const refreshToken = employee.getDecryptedToken();
+    const calendarData = await getCalendarData(STATIC_EMPLOYEE_EMAIL, refreshToken);
+    const freeSlots = calendarData.freeSlots.map(slot => ({
+      ...slot,
+      // Add day/date for prompt
+      fullDate: `${slot.date}, ${slot.day} at ${slot.time}`
+    }));
+    const availabilityJson = JSON.stringify(freeSlots, null, 2);
+
+    // 2. Build prompt with real data
+    const fullSystem = systemInstruction.replace("{{AVAILABILITY}}", availabilityJson);
+
+    // 3. Start/update chat
     if (!chat) {
       chat = model.startChat({
         history: history.map(msg => ({
           role: msg.role === "assistant" ? "model" : "user",
           parts: [{ text: msg.content }],
         })),
+        systemInstruction: { parts: [{ text: fullSystem }] },
       });
     }
 
     const result = await chat.sendMessage(message);
     const response = result.response;
-    const reply = response.text();
+    let reply = response.text();
+
+    // 4. Check for booking JSON (parse if present)
+    let bookingData = null;
+    try {
+      const jsonMatch = reply.match(/\{.*\}/s);
+      if (jsonMatch) {
+        bookingData = JSON.parse(jsonMatch[0]);
+        if (bookingData.intent === 'book') {
+          // Auto-book via API
+          const bookRes = await fetch('http://localhost:3000/api/chat/book', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(bookingData)
+          });
+          const bookResult = await bookRes.json();
+          if (bookResult.success) {
+            reply = `Great! I've booked your meeting: "${bookingData.title}" on ${bookingData.start}. Join via: ${bookResult.event.meetLink || 'Calendar invite sent!'}`;
+          } else {
+            reply = `Sorry, couldn't book: ${bookResult.error}. Let's try another time.`;
+          }
+          bookingData = null;  // Clear after handling
+        }
+      }
+    } catch (parseErr) {
+      // Not JSON, normal reply
+    }
 
     res.json({
       reply,
-      sender: "bot"
+      bookingData,  
+      sender: "bot",
+      freeSlots 
     });
 
   } catch (error) {
-    console.error("Gemini Error:", error);
-
-    if (error.message.includes("API key")) {
-      return res.status(500).json({ reply: "Sorry, I'm having authentication issues. Please contact support." });
-    }
-
+    console.error("Error:", error);
     res.status(500).json({
-        reply: "Oops! I'm having a little trouble right now. Please try again in a minute!"
+      reply: "Oops! Having trouble connecting to the calendar. Try again soon!"
     });
   }
 };
