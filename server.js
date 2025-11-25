@@ -16,11 +16,10 @@ app.use(helmet());
 app.use(cors({ origin: '*' }));
 app.use(morgan('dev'));
 app.use(express.json());
+app.use(express.static('public'));
 
 // Connect DB
-connectDB();  // Removed async wrapper since it's fire-and-forget
-
-// Auth endpoints (use shared oauth2Client)
+connectDB(); 
 app.get('/auth', (req, res) => {
   const url = oauth2Client.generateAuthUrl({
     access_type: 'offline',
@@ -79,13 +78,9 @@ app.get('/', (req, res)=> {
   res.send('Welcome to the AI Chatbot with Real Calendar! Auth at /auth');
 });
 
-// Chatbot routes
 app.use('/api/chat', chatRoutes);
 
-// Booking endpoint
 app.post('/api/chat/book', bookMeetingHandler);
-
-// Old endpoints (updated to use self-contained getCalendarData)
 app.get('/employees', async (req, res) => {
   const employees = await Employee.find({}, 'name email');
   res.json(employees);

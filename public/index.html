@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Acme Consulting • AI Assistant</title>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet"/>
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-light: #3b82f6;
+      --gray-100: #f3f4f6;
+      --gray-200: #e5e7eb;
+      --gray-600: #4b5563;
+      --gray-800: #1f2937;
+      --success: #10b981;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    .chat-container {
+      width: 100%;
+      max-width: 480px;
+      height: 92vh;
+      background: white;
+      border-radius: 24px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.15);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .header {
+      background: var(--primary);
+      color: white;
+      padding: 20px;
+      text-align: center;
+      position: relative;
+    }
+    .header h1 { font-size: 1.5rem; font-weight: 600; }
+    .header p { font-size: 0.9rem; opacity: 0.9; margin-top: 4px; }
+    .status {
+      position: absolute;
+      bottom: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 0.8rem;
+      opacity: 0.9;
+    }
+    .chat-messages {
+      flex: 1;
+      padding: 20px;
+      overflow-y: auto;
+      background: var(--gray-100);
+    }
+    .message {
+      margin-bottom: 16px;
+      display: flex;
+      gap: 12px;
+      animation: fadeIn 0.4s ease;
+    }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+    .message.bot { flex-direction: row; }
+    .message.user { flex-direction: row-reverse; }
+    .bubble {
+      max-width: 80%;
+      padding: 12px 16px;
+      border-radius: 18px;
+      line-height: 1.5;
+      font-size: 15px;
+    }
+    .bot .bubble {
+      background: white;
+      border-bottom-left-radius: 4px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    .user .bubble {
+      background: var(--primary);
+      color: white;
+      border-bottom-right-radius: 4px;
+    }
+    .avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: var(--primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: bold;
+      flex-shrink: 0;
+    }
+    .user .avatar { background: var(--gray-800); }
+    .typing {
+      display: flex;
+      gap: 6px;
+      padding: 12px 16px;
+      background: white;
+      border-radius: 18px;
+      width: fit-content;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    .typing span {
+      width: 8px;
+      height: 8px;
+      background: #999;
+      border-radius: 50%;
+      animation: typing 1.4s infinite;
+    }
+    .typing span:nth-child(2) { animation-delay: 0.2s; }
+    .typing span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes typing {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-10px); }
+    }
+    .input-area {
+      padding: 16px;
+      background: white;
+      border-top: 1px solid var(--gray-200);
+    }
+    .input-wrapper {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+    #messageInput {
+      flex: 1;
+      padding: 14px 18px;
+      border: 1px solid var(--gray-200);
+      border-radius: 30px;
+      font-size: 15px;
+      outline: none;
+      transition: border 0.2s;
+    }
+    #messageInput:focus { border-color: var(--primary); }
+    #sendBtn {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: var(--primary);
+      color: white;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s;
+    }
+    #sendBtn:hover { background: var(--primary-light); }
+    .slots {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .slot-btn {
+      padding: 10px;
+      background: #f0f9ff;
+      border: 1px solid #0ea5e9;
+      border-radius: 12px;
+      font-size: 13px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .slot-btn:hover {
+      background: #0ea5e9;
+      color: white;
+    }
+    @media (max-width: 480px) {
+      .chat-container { height: 100vh; border-radius: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="chat-container">
+    <div class="header">
+      <h1>Acme Consulting</h1>
+      <p>Hi, I'm your AI assistant. How can I help you today?</p>
+      <div class="status"><i class="fas fa-circle" style="color:#10b981;font-size:10px"></i> Online • Real-time availability</div>
+    </div>
+
+    <div id="chatMessages" class="chat-messages">
+      <div class="message bot">
+        <div class="avatar">A</div>
+        <div class="bubble">
+          Hello! I'm here to help you book a meeting or answer any questions.<br>
+          Just let me know what you need
+        </div>
+      </div>
+    </div>
+
+    <div class="input-area">
+      <div class="input-wrapper">
+        <input type="text" id="messageInput" placeholder="Type your message..." autocomplete="off" />
+        <button id="sendBtn"><i class="fas fa-paper-plane"></i></button>
+      </div>
+    </div>
+  </div>
+  <script src="/chat.js"></script>
+</body>
+</html>
