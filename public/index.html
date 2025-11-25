@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Acme Consulting • AI Assistant</title>
+  <title>Moyo Tech Solutions • AI Assistant</title>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet"/>
   <style>
     :root {
@@ -35,15 +35,60 @@
       display: flex;
       flex-direction: column;
     }
-    .header {
-      background: var(--primary);
-      color: white;
-      padding: 20px;
-      text-align: center;
-      position: relative;
-    }
-    .header h1 { font-size: 1.5rem; font-weight: 600; }
-    .header p { font-size: 0.9rem; opacity: 0.9; margin-top: 4px; }
+.header {
+  background: var(--primary);
+  color: white;
+  padding: 20px;
+  text-align: center;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.logo-container {
+  flex-shrink: 0;
+}
+
+.logo {
+  height: 60px;
+  width: auto;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+
+.title-text {
+  text-align: center;
+}
+
+.title-text h1 {
+  font-size: 1.6rem;
+  font-weight: 700;
+  margin: 0;
+  line-height: 1.2;
+}
+
+.title-text p {
+  font-size: 0.95rem;
+  opacity: 0.95;
+  margin: 4px 0 0;
+}
+
+/* Mobile adjustment */
+@media (max-width: 480px) {
+  .header {
+    padding: 16px;
+    gap: 12px;
+  }
+  .logo {
+    height: 50px;
+  }
+  .title-text h1 {
+    font-size: 1.4rem;
+  }
+}
     .status {
       position: absolute;
       bottom: 8px;
@@ -176,23 +221,33 @@
     @media (max-width: 480px) {
       .chat-container { height: 100vh; border-radius: 0; }
     }
+
+    .slot-btn {
+  background: #f0f9ff !important;
+  border: 1px solid #0ea5e9 !important;
+  color: #0369a1 !important;
+  font-weight: 500 !important;
+}
+.slot-btn:hover {
+  background: #0ea5e9 !important;
+  color: white !important;
+}
   </style>
 </head>
 <body>
   <div class="chat-container">
     <div class="header">
-      <h1>Acme Consulting</h1>
-      <p>Hi, I'm your AI assistant. How can I help you today?</p>
-      <div class="status"><i class="fas fa-circle" style="color:#10b981;font-size:10px"></i> Online • Real-time availability</div>
-    </div>
+  <div class="logo-container">
+    <img src="/logo.png" alt="Moyo Tech Solutions Logo" class="logo">
+  </div>
+  <div class="title-text">
+    <h1>Moyo Tech Solutions</h1>
+    <p>AI Scheduling Assistant • Always available</p>
+  </div>
+</div>
 
     <div id="chatMessages" class="chat-messages">
       <div class="message bot">
-        <div class="avatar">A</div>
-        <div class="bubble">
-          Hello! I'm here to help you book a meeting or answer any questions.<br>
-          Just let me know what you need
-        </div>
       </div>
     </div>
 

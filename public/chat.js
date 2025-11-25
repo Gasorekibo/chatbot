@@ -1,115 +1,101 @@
-// public/chat.js
-const chatMessages = document.getElementById('chatMessages');
-const messageInput = document.getElementById('messageInput');
+const chat = document.getElementById('chatMessages');
+const input = document.getElementById('messageInput');
 const sendBtn = document.getElementById('sendBtn');
 let history = [];
 
-const addMessage = (text, sender, slots = [], bookingConfirmed = false) => {
-  const messageDiv = document.createElement('div');
-  messageDiv.className = `message ${sender}`;
+// === All functions first ===
+const addMessage = (text, sender, slots = [], confirmed = false) => {
+  const msg = document.createElement('div');
+  msg.className = `message ${sender}`;
 
-  const avatar = document.createElement('div');
-  avatar.className = 'avatar';
-  avatar.textContent = sender === 'user' ? 'You' : 'A';
-
-  const bubble = document.createElement('div');
-  bubble.className = 'bubble';
-  bubble.innerHTML = text.replace(/\n/g, '<br>');
-
+  let slotsHTML = '';
   if (slots.length > 0) {
-    const slotsDiv = document.createElement('div');
-    slotsDiv.className = 'slots';
-    slots.forEach(slot => {
-      const btn = document.createElement('div');
-      btn.className = 'slot-btn';
-      btn.textContent = `${slot.day}, ${slot.date} • ${slot.time}`;
-      btn.onclick = () => bookSlot(slot);
-      slotsDiv.appendChild(btn);
-    });
-    bubble.appendChild(slotsDiv);
+    slotsHTML = '<div class="slots">' + slots.map((slot, i) => `
+      <div class="slot-btn" data-start="${slot.start}">
+        ${new Date(slot.start).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+        <br>
+        <strong>${new Date(slot.start).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</strong>
+      </div>
+    `).join('') + '</div>';
   }
 
-  if (bookingConfirmed) {
-    bubble.innerHTML += `<br><br><strong style="color:#10b981">Meeting booked successfully!</strong><br>Check your email for the Google Meet link.`;
-  }
+  const confirmedHTML = confirmed
+    ? '<br><br><strong style="color:#10b981">Meeting booked successfully!<br>Check your email for the Google Meet link.</strong>'
+    : '';
 
-  messageDiv.appendChild(avatar);
-  messageDiv.appendChild(bubble);
-  chatMessages.appendChild(messageDiv);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
-};
-
-const showTyping = () => {
-  const typingDiv = document.createElement('div');
-  typingDiv.id = 'typing';
-  typingDiv.className = 'message bot';
-  typingDiv.innerHTML = `
-    <div class="avatar">A</div>
-    <div class="bubble"><div class="typing"><span></span><span></span><span></span></div></div>
+  msg.innerHTML = `
+    <div class="avatar">${sender === 'user' ? 'You' : 'A'}</div>
+    <div class="bubble">
+      ${text.replace(/\n/g, '<br>')}
+      ${slotsHTML}
+      ${confirmedHTML}
+    </div>
   `;
-  chatMessages.appendChild(typingDiv);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
+
+  chat.appendChild(msg);
+  chat.scrollTop = chat.scrollHeight;
+
+  // Attach click listeners safely (NO inline onclick!)
+  msg.querySelectorAll('.slot-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const isoStart = btn.dataset.start;
+      const formatted = new Date(isoStart).toLocaleString('en-US', {
+        weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit'
+      });
+      const userMsg = `Please book this time: ${formatted}`;
+      addMessage(userMsg, 'user');
+      input.value = '';
+      history.push({ role: 'user', content: userMsg });
+      sendMessage(userMsg);
+    });
+  });
 };
 
-const removeTyping = () => {
-  const typing = document.getElementById('typing');
-  if (typing) typing.remove();
+const typing = () => {
+  const el = document.createElement('div');
+  el.id = 'typing';
+  el.className = 'message bot';
+  el.innerHTML = `<div class="avatar">A</div><div class="bubble"><div class="typing"><span></span><span></span><span></span></div></div>`;
+  chat.appendChild(el);
+  chat.scrollTop = chat.scrollHeight;
 };
 
-const bookSlot = async (slot) => {
-  const userMessage = `Book ${slot.formatted} please`;
-  addMessage(userMessage, 'user');
-  messageInput.value = '';
-  history.push({ role: 'user', content: userMessage });
-  await sendMessageInternal(userMessage);
-};
+const removeTyping = () => document.getElementById('typing')?.remove();
 
-const sendMessageInternal = async (message) => {
-  showTyping();
+const sendMessage = async (message) => {
+  if (!message?.trim()) return;
+  typing();
   try {
     const res = await fetch('/api/chat/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, history })
+      body: JSON.stringify({ message: message.trim(), history })
     });
     const data = await res.json();
     removeTyping();
-
-    if (data.bookingData && data.bookingData.intent === 'book') {
-      const bookRes = await fetch('/api/chat/book', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data.bookingData)
-      });
-      const bookResult = await bookRes.json();
-      const finalReply = bookResult.success
-        ? `Booked! ${bookResult.event.summary} on ${new Date(bookResult.event.start).toLocaleString()}. Meet link: ${bookResult.event.meetLink || 'Check email'}`
-        : `Sorry, that slot was taken. Here are alternatives:`;
-      addMessage(finalReply, 'bot', data.freeSlots || [], bookResult.success);
-    } else {
-      addMessage(data.reply, 'bot', data.freeSlots || []);
-    }
-
-    history.push({ role: 'assistant', content: data.reply });
+    addMessage(data.reply || "How can I help?", 'bot', data.freeSlots || [], data.bookingConfirmed);
+    history.push({ role: 'assistant', content: data.reply || "" });
   } catch (err) {
     removeTyping();
-    addMessage("Sorry, connection issue. Please try again.", 'bot');
+    addMessage("Sorry, connection issue. Try again.", 'bot');
   }
 };
 
-const sendMessage = async () => {
-  const message = messageInput.value.trim();
-  if (!message) return;
-
-  addMessage(message, 'user');
-  history.push({ role: 'user', content: message });
-  messageInput.value = '';
-  await sendMessageInternal(message);
-};
-
-sendBtn.addEventListener('click', sendMessage);
-messageInput.addEventListener('keypress', (e) => {
-  if (e.key === 'Enter') sendMessage();
+// === Input handlers ===
+sendBtn.addEventListener('click', () => {
+  const msg = input.value.trim();
+  if (msg) {
+    addMessage(msg, 'user');
+    history.push({ role: 'user', content: msg });
+    input.value = '';
+    sendMessage(msg);
+  }
 });
 
-messageInput.focus();
+input.addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') sendBtn.click();
+});
+
+addMessage("Hello! I'm your AI assistant at Moyo Tech Solutions. I can help you book a meeting or answer any questions. How can I assist you today?", 'bot');
+
+input.focus();
