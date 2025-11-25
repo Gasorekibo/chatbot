@@ -1,4 +1,3 @@
-// controllers/chatController.js  ← FINAL PROFESSIONAL VERSION
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Employee = require('../models/Employees');
 const getCalendarData = require('../utils/getCalendarData');
@@ -44,7 +43,7 @@ const sendMessage = async (req, res) => {
     const { message, history = [] } = req.body;
     if (!message?.trim()) return res.status(400).json({ error: "Message required" });
 
-    // Get fresh calendar
+    // Get fresh calendar data
     const employee = await Employee.findOne({ email: EMPLOYEE_EMAIL });
     if (!employee) return res.status(500).json({ reply: "Calendar not ready yet." });
 
@@ -89,7 +88,7 @@ const sendMessage = async (req, res) => {
       }
     }
 
-    // Auto-book if needed
+
     let bookingSuccess = false;
     if (bookData?.intent === "book") {
       const bookRes = await fetch('http://localhost:3000/api/chat/book', {

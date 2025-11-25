@@ -7,7 +7,7 @@ const connectDB = require('./helpers/config');
 const chatRoutes = require('./routes/chat');
 const bookMeetingHandler = require('./controllers/bookMeeting');
 const Employee = require('./models/Employees');
-const { oauth2Client } = require('./utils/auth');  // Now safe import
+const { oauth2Client } = require('./utils/auth');
 
 const app = express();
 const PORT = process.env.PORT || 3000;

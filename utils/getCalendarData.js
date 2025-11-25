@@ -1,6 +1,6 @@
 const { google } = require('googleapis');
 const { DateTime } = require('luxon');
-const { oauth2Client } = require('./auth');  // Now cycle-free
+const { oauth2Client } = require('./auth'); 
 
 module.exports = async function getCalendarData(email, refreshToken, days = 7) {
   try {
@@ -39,11 +39,11 @@ module.exports = async function getCalendarData(email, refreshToken, days = 7) {
 
     const events = eventsData.items || [];
 
-    // Calculate free slots (1-hour, 9AM-5PM, Mon-Fri only)
+ 
     const free = [];
     for (let day = 0; day < days; day++) {
       const currentDay = now.startOf('day').plus({ days: day });
-      if (currentDay.weekday > 5) continue;  // Skip weekends
+      if (currentDay.weekday > 5) continue;  
 
       const dayStart = currentDay.set({ hour: 9, minute: 0 });
       const dayEnd = currentDay.set({ hour: 17, minute: 0 });

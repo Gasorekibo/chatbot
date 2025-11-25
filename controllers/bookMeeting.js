@@ -30,7 +30,7 @@ const bookMeetingHandler = async (req, res) => {
       return res.status(401).json({ error: 'No valid token - re-authorize at /auth' });
     }
 
-    // Self-contained auth (no global)
+    
     const oauth2Client = new GoogleOAuth2Client(
       process.env.GOOGLE_CLIENT_ID,
       process.env.GOOGLE_CLIENT_SECRET,

@@ -3,7 +3,6 @@ const input = document.getElementById('messageInput');
 const sendBtn = document.getElementById('sendBtn');
 let history = [];
 
-// === All functions first ===
 const addMessage = (text, sender, slots = [], confirmed = false) => {
   const msg = document.createElement('div');
   msg.className = `message ${sender}`;
@@ -35,7 +34,7 @@ const addMessage = (text, sender, slots = [], confirmed = false) => {
   chat.appendChild(msg);
   chat.scrollTop = chat.scrollHeight;
 
-  // Attach click listeners safely (NO inline onclick!)
+ 
   msg.querySelectorAll('.slot-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const isoStart = btn.dataset.start;
@@ -81,7 +80,7 @@ const sendMessage = async (message) => {
   }
 };
 
-// === Input handlers ===
+
 sendBtn.addEventListener('click', () => {
   const msg = input.value.trim();
   if (msg) {
