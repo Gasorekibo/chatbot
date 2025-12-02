@@ -96,7 +96,6 @@ const sendMessage = async (req, res) => {
     const calendar = await getCalendarData(EMPLOYEE_EMAIL, token);
     const freeSlots = calendar.freeSlots.map(s => {
       const startDate = new Date(s.start);
-      // Ensure all dates are in 2025
       if (startDate.getFullYear() < 2025) {
         startDate.setFullYear(2025);
       }
@@ -211,7 +210,6 @@ const sendMessage = async (req, res) => {
           bookData.end = bookEnd.toISOString();
         }
         
-        console.log("📅 Attempting booking:", bookData);
 
         // Validate booking data
         if (!bookData.start || !bookData.attendeeEmail || !bookData.title) {
@@ -235,19 +233,6 @@ const sendMessage = async (req, res) => {
 
         if (bookResult.success) {
           bookingSuccess = true;
-          
-          // Save service request with booking info
-          if (bookData.service) {
-            await ServiceRequest.create({
-              service: bookData.service,
-              name: bookData.name,
-              email: bookData.attendeeEmail,
-              phone: bookData.phone || null,
-              company: bookData.company || null,
-              details: bookData.details || "",
-              status: 'scheduled'
-            });
-          }
 
           const meetLink = bookResult.event?.meetLink || 'Check your email';
           finalReply = `Perfect! Your consultation is confirmed for ${new Date(bookData.start).toLocaleString('en-US', {
