@@ -392,7 +392,7 @@ const verifyWebhook = (req, res) => {
   const challenge = req.query['hub.challenge'];
   const token = req.query['hub.verify_token'];
 
-  const VERIFY_TOKEN = process.env.WEBHOOK_VERIFY_TOKEN || 'moyo-tech-webhook-token';
+  const VERIFY_TOKEN = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || 'moyo-tech-webhook-token';
 
   if (mode && token === VERIFY_TOKEN) {
     console.log('Webhook verified successfully');
