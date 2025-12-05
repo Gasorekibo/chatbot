@@ -2,6 +2,8 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Employee = require('../models/Employees');
 const getCalendarData = require('../utils/getCalendarData');
 const ServiceRequest = require('../models/ServiceRequest');
+const dotenv = require('dotenv');
+dotenv.config();
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const EMPLOYEE_EMAIL = process.env.EMPLOYEE_EMAIL;
@@ -392,7 +394,8 @@ const verifyWebhook = (req, res) => {
   const challenge = req.query['hub.challenge'];
   const token = req.query['hub.verify_token'];
 
-  const VERIFY_TOKEN = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || 'moyo-tech-webhook-token';
+  const VERIFY_TOKEN = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN;
+
 
   if (mode && token === VERIFY_TOKEN) {
     console.log('Webhook verified successfully');
