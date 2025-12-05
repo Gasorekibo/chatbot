@@ -78,10 +78,8 @@ const model = genAI.getGenerativeModel({
   },
 });
 
-// Store WhatsApp chat sessions per phone number
 const whatsappSessions = new Map();
 
-// Store user state (service selection, slots shown, etc.)
 const userStates = new Map();
 
 const services = [
@@ -91,9 +89,9 @@ const services = [
   { id: 'training', name: "IT Training" }
 ];
 
-// Send WhatsApp message
 async function sendWhatsAppMessage(to, body) {
-  const url = `https://graph.facebook.com/v22.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
+    console.log('Sending WhatsApp message', 'to=====>:', to, body);
+  const url = process.env.WHATSAPP_URL;
   
   try {
     const response = await fetch(url, {
@@ -327,9 +325,7 @@ async function processChatbotMessage(phoneNumber, userMessage, history = []) {
         if (!bookData.start || !bookData.attendeeEmail || !bookData.title) {
           throw new Error("Incomplete booking data");
         }
-
-        // Call booking endpoint
-        const bookResponse = await fetch('http://localhost:3000/api/chat/book', {
+        const bookResponse = await fetch('https://catherin-postsaccular-rosann.ngrok-free.dev/api/chat/book', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -395,10 +391,7 @@ const verifyWebhook = (req, res) => {
   const token = req.query['hub.verify_token'];
 
   const VERIFY_TOKEN = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN;
-
-
   if (mode && token === VERIFY_TOKEN) {
-    console.log('Webhook verified successfully');
     res.status(200).send(challenge);
   } else {
     console.log('Webhook verification failed');
@@ -406,18 +399,25 @@ const verifyWebhook = (req, res) => {
   }
 };
 
-// Handle incoming WhatsApp messages
 const handleWebhook = async (req, res) => {
+  console.log('=== INCOMING WEBHOOK ===');
+  console.log(JSON.stringify(req.body, null, 2));
+  
   try {
     const { entry } = req.body;
 
+    // Immediately respond to WhatsApp to prevent timeout
+    res.status(200).send('EVENT_RECEIVED');
+
     if (!entry || entry.length === 0) {
-      return res.status(400).send('Invalid Request');
+      console.log('No entry in webhook');
+      return;
     }
 
     const changes = entry[0].changes;
     if (!changes || changes.length === 0) {
-      return res.status(400).send('Invalid Request');
+      console.log('No changes in webhook');
+      return;
     }
 
     const value = changes[0].value;
@@ -427,118 +427,128 @@ const handleWebhook = async (req, res) => {
     // Handle message status updates
     if (statuses) {
       console.log(`Message Status: ${statuses.status} for ID: ${statuses.id}`);
-      return res.status(200).send('Status received');
+      return;
     }
 
     // Handle incoming messages
-    if (messages) {
-      const phoneNumber = messages.from;
-      const messageId = messages.id;
-      
-      // Get or initialize user state
-      let userState = userStates.get(phoneNumber) || {
-        serviceSelected: false,
-        awaitingSlotSelection: false,
-        freeSlots: [],
-        history: []
-      };
+    if (!messages) {
+      console.log('No messages in webhook');
+      return;
+    }
 
-      // Handle text messages
-      if (messages.type === 'text') {
-        const userMessage = messages.text.body;
+    const phoneNumber = messages.from;
+    const messageId = messages.id;
+    
+    console.log(`Processing message from: ${phoneNumber}`);
+    
+    // Get or initialize user state
+    let userState = userStates.get(phoneNumber) || {
+      serviceSelected: false,
+      awaitingSlotSelection: false,
+      freeSlots: [],
+      history: []
+    };
+
+    // Handle text messages
+    if (messages.type === 'text') {
+      const userMessage = messages.text.body.trim();
+      console.log(`Text message: "${userMessage}"`);
+      
+      // Check if user is selecting a time slot by number
+      if (userState.awaitingSlotSelection && /^\d+$/.test(userMessage)) {
+        const slotIndex = parseInt(userMessage) - 1;
         
-        // Check if user is selecting a time slot by number
-        if (userState.awaitingSlotSelection && /^\d+$/.test(userMessage.trim())) {
-          const slotIndex = parseInt(userMessage.trim()) - 1;
+        if (slotIndex >= 0 && slotIndex < userState.freeSlots.length) {
+          const selectedSlot = userState.freeSlots[slotIndex];
+          const formatted = new Date(selectedSlot.isoStart).toLocaleString('en-US', {
+            weekday: 'long',
+            month: 'long',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+            timeZone: 'Africa/Kigali'
+          });
           
-          if (slotIndex >= 0 && slotIndex < userState.freeSlots.length) {
-            const selectedSlot = userState.freeSlots[slotIndex];
-            const formatted = new Date(selectedSlot.isoStart).toLocaleString('en-US', {
-              weekday: 'long',
-              month: 'long',
-              day: 'numeric',
-              hour: 'numeric',
-              minute: '2-digit',
-              timeZone: 'Africa/Kigali'
-            });
-            
-            // Process booking
-            const convertedMessage = `I'd like to book this time: ${formatted}`;
-            const response = await processChatbotMessage(phoneNumber, convertedMessage, userState.history);
-            
-            await sendWhatsAppMessage(phoneNumber, response.reply);
-            
-            userState.awaitingSlotSelection = false;
-            userState.freeSlots = [];
-          } else {
-            await sendWhatsAppMessage(phoneNumber, '❌ Invalid selection. Please choose a number from the list above.');
-          }
+          // Process booking
+          const convertedMessage = `I'd like to book this time: ${formatted}`;
+          const response = await processChatbotMessage(phoneNumber, convertedMessage, userState.history);
           
-          userStates.set(phoneNumber, userState);
-          return res.status(200).send('Webhook processed');
+          await sendWhatsAppMessage(phoneNumber, response.reply);
+          
+          userState.awaitingSlotSelection = false;
+          userState.freeSlots = [];
+        } else {
+          await sendWhatsAppMessage(phoneNumber, '❌ Invalid selection. Please choose a number from the list above.');
         }
         
-        // Handle "start" or "hello" to show services
-        if (userMessage.toLowerCase() === 'start' || userMessage.toLowerCase() === 'hello' || userMessage.toLowerCase() === 'hi') {
-          await sendServiceList(phoneNumber);
-          userState.serviceSelected = false;
-          userStates.set(phoneNumber, userState);
-          return res.status(200).send('Webhook processed');
-        }
-        
-        // Process regular message through chatbot
-        const response = await processChatbotMessage(phoneNumber, userMessage, userState.history);
-        
-        // Send reply
-        await sendWhatsAppMessage(phoneNumber, response.reply);
-        
-        // If showing slots, send them
-        if (response.showSlots && response.freeSlots.length > 0) {
-          await sendTimeSlots(phoneNumber, response.freeSlots);
-          userState.awaitingSlotSelection = true;
-          userState.freeSlots = response.freeSlots;
-        }
-        
-        // If showing services, send them
-        if (response.showServices && !userState.serviceSelected) {
-          await sendServiceList(phoneNumber);
-        }
-        
-        // Update history
-        userState.history.push({ role: 'user', content: userMessage });
-        userState.history.push({ role: 'assistant', content: response.reply });
         userStates.set(phoneNumber, userState);
+        return;
       }
       
-      // Handle interactive messages (service selection from list)
-      if (messages.type === 'interactive') {
-        if (messages.interactive.type === 'list_reply') {
-          const selectedId = messages.interactive.list_reply.id;
-          const selectedService = services.find(s => s.id === selectedId);
+      // Handle "start" or "hello" to show services
+      const lowerMsg = userMessage.toLowerCase();
+      if (lowerMsg === 'start' || lowerMsg === 'hello' || lowerMsg === 'hi' || lowerMsg === 'hey') {
+        await sendServiceList(phoneNumber);
+        userState.serviceSelected = false;
+        userStates.set(phoneNumber, userState);
+        return;
+      }
+      
+      // Process regular message through chatbot
+      const response = await processChatbotMessage(phoneNumber, userMessage, userState.history);
+      
+      console.log(`AI Response: ${response.reply}`);
+      
+      // Send reply
+      await sendWhatsAppMessage(phoneNumber, response.reply);
+      
+      // If showing slots, send them
+      if (response.showSlots && response.freeSlots.length > 0) {
+        await sendTimeSlots(phoneNumber, response.freeSlots);
+        userState.awaitingSlotSelection = true;
+        userState.freeSlots = response.freeSlots;
+      }
+      
+      // If showing services, send them
+      if (response.showServices && !userState.serviceSelected) {
+        await sendServiceList(phoneNumber);
+      }
+      
+      // Update history
+      userState.history.push({ role: 'user', content: userMessage });
+      userState.history.push({ role: 'assistant', content: response.reply });
+      userStates.set(phoneNumber, userState);
+    }
+    
+    // Handle interactive messages (service selection from list)
+    if (messages.type === 'interactive') {
+      console.log('Interactive message received');
+      if (messages.interactive.type === 'list_reply') {
+        const selectedId = messages.interactive.list_reply.id;
+        const selectedService = services.find(s => s.id === selectedId);
+        
+        console.log(`Service selected: ${selectedId}`);
+        
+        if (selectedService) {
+          const convertedMessage = `I need ${selectedService.name}`;
+          const response = await processChatbotMessage(phoneNumber, convertedMessage, userState.history);
           
-          if (selectedService) {
-            const convertedMessage = `I need ${selectedService.name}`;
-            const response = await processChatbotMessage(phoneNumber, convertedMessage, userState.history);
-            
-            await sendWhatsAppMessage(phoneNumber, response.reply);
-            
-            userState.serviceSelected = true;
-            userState.history.push({ role: 'user', content: convertedMessage });
-            userState.history.push({ role: 'assistant', content: response.reply });
-            userStates.set(phoneNumber, userState);
-          }
+          await sendWhatsAppMessage(phoneNumber, response.reply);
+          
+          userState.serviceSelected = true;
+          userState.history.push({ role: 'user', content: convertedMessage });
+          userState.history.push({ role: 'assistant', content: response.reply });
+          userStates.set(phoneNumber, userState);
         }
       }
     }
 
-    res.status(200).send('Webhook processed');
   } catch (error) {
-    console.error('Webhook error:', error);
-    res.status(500).send('Internal server error');
+    console.error('=== WEBHOOK ERROR ===');
+    console.error(error);
+    // Already sent 200 response, just log the error
   }
 };
-
-// Clean up old sessions periodically
 setInterval(() => {
   const now = Date.now();
   for (const [key, value] of whatsappSessions.entries()) {

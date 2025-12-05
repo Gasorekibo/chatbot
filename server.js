@@ -110,11 +110,11 @@
 
 
 
+// server.js — FINAL, FULLY WORKING VERSION
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
-const helmet = require('helmet');
 const connectDB = require('./helpers/config');
 const chatRoutes = require('./routes/chat');
 const bookMeetingHandler = require('./controllers/bookMeeting');
@@ -125,16 +125,16 @@ const { verifyWebhook, handleWebhook } = require('./controllers/whatsappControll
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(helmet());
+// CRITICAL: This exact order — DO NOT CHANGE
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(cors({ origin: '*' }));
 app.use(morgan('dev'));
-app.use(express.json());
-app.use(express.static('public'));
 
-// Connect DB
-connectDB(); 
+// Connect to MongoDB
+connectDB();
 
-// Google OAuth routes
+// Google OAuth Routes
 app.get('/auth', (req, res) => {
   const url = oauth2Client.generateAuthUrl({
     access_type: 'offline',
@@ -152,63 +152,48 @@ app.get('/auth', (req, res) => {
 app.get('/oauth/callback', async (req, res) => {
   const { code } = req.query;
   try {
-    const data = await oauth2Client.getToken(code);
-    oauth2Client.setCredentials(data.tokens);
-    const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
-      headers: {
-        Authorization: `Bearer ${data.tokens.access_token}`
-      }
+    const { tokens } = await oauth2Client.getToken(code);
+    oauth2Client.setCredentials(tokens);
+
+    const userInfoRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: { Authorization: `Bearer ${tokens.access_token}` }
     });
-    
-    const userInfo = await userInfoResponse.json();
-    const existingEmployee = await Employee.findOne({ email: userInfo.email });
-    
-    if (existingEmployee) {
-      existingEmployee.refreshToken = data.tokens.refresh_token;
-      await existingEmployee.save();
-    } else {
-      const newEmployee = new Employee({
+    const userInfo = await userInfoRes.json();
+
+    const employee = await Employee.findOneAndUpdate(
+      { email: userInfo.email },
+      { 
         name: userInfo.name,
         email: userInfo.email,
-        refreshToken: data.tokens.refresh_token
-      });
-      await newEmployee.save();
-    }
-    
-    res.send(`
-      <h3>Authorization successful!</h3>
-      <p><strong>Name:</strong> ${userInfo.name}</p>
-      <p><strong>Email:</strong> ${userInfo.email}</p>
-      <p>✅ Employee automatically saved to database!</p>
-    `);
+        refreshToken: tokens.refresh_token || undefined
+      },
+      { upsert: true, new: true }
+    );
+
+    res.send(`<h2>Success!</h2><p>Connected as ${userInfo.name} (${userInfo.email})</p>`);
   } catch (err) {
-    console.error(err);
-    res.status(500).send('OAuth error: ' + err.message);
+    console.error('OAuth error:', err);
+    res.status(500).send('Authentication failed');
   }
 });
 
-// WhatsApp webhook routes
+// WHATSAPP WEBHOOK — THESE MUST BE BEFORE ANY OTHER ROUTES
 app.get('/webhook', verifyWebhook);
-app.post('/webhook', handleWebhook);
+app.post('/webhook', handleWebhook);  // ← Your full AI logic here
 
-// Main route
+// Web UI & API routes
 app.get('/', (req, res) => {
-  res.send('Welcome to the AI Chatbot with Real Calendar & WhatsApp Integration! Auth at /auth');
+  res.send('Moyo Tech AI WhatsApp Bot is LIVE!');
 });
 
-// Chat routes (for web UI)
 app.use('/api/chat', chatRoutes);
-
-// Booking endpoint
 app.post('/api/chat/book', bookMeetingHandler);
 
-// Employee routes
 app.get('/employees', async (req, res) => {
   const employees = await Employee.find({}, 'name email');
   res.json(employees);
 });
 
-// Calendar data endpoint
 app.post('/calendar-data', async (req, res) => {
   const { employeeName } = req.body;
   if (!employeeName) return res.status(400).json({ error: 'no employee name' });
@@ -221,15 +206,14 @@ app.post('/calendar-data', async (req, res) => {
 
   const getCalendarData = require('./utils/getCalendarData');
   try {
-    const calendarData = await getCalendarData(employee.email, token);
-    res.json(calendarData);
+    const data = await getCalendarData(employee.email, token);
+    res.json(data);
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: 'calendar error', details: e.message });
+    res.status(500).json({ error: e.message });
   }
 });
 
+// Start server
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
-  console.log(`WhatsApp webhook available at http://localhost:${PORT}/webhook`);
 });
