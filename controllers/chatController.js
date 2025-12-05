@@ -180,7 +180,6 @@ const sendMessage = async (req, res) => {
           status: 'new'
         });
 
-        console.log("✅ Service request saved:", savedRequest._id);
       } catch (err) {
         console.error("Failed to save service request:", err);
       }

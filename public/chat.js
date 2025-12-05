@@ -94,21 +94,16 @@ const addMessage = (text, sender, slots = [], showServices = false, confirmed = 
 
   chat.appendChild(msg);
   chat.scrollTop = chat.scrollHeight;
-
-  // Attach event listeners after DOM insertion
   attachSlotListeners(msg);
   attachServiceListeners(msg);
 };
 
-// Handle time slot selection
 const attachSlotListeners = (msgElement) => {
   msgElement.querySelectorAll('.slot-btn[data-start]').forEach(btn => {
     btn.onclick = async (e) => {
       e.stopPropagation();
       
       if (isProcessing) return;
-      
-      // Visual feedback
       btn.style.transform = 'scale(0.95)';
       btn.style.opacity = '0.6';
       
@@ -119,7 +114,7 @@ const attachSlotListeners = (msgElement) => {
       if (lastSentMessage === userMsg) return;
       lastSentMessage = userMsg;
 
-      // Disable all slot buttons
+  
       msgElement.querySelectorAll('.slot-btn').forEach(b => {
         b.style.pointerEvents = 'none';
         b.style.opacity = '0.5';
@@ -131,7 +126,6 @@ const attachSlotListeners = (msgElement) => {
   });
 };
 
-// Handle service selection
 const attachServiceListeners = (msgElement) => {
   msgElement.querySelectorAll('.service-btn').forEach(btn => {
     btn.onclick = async (e) => {
@@ -145,10 +139,9 @@ const attachServiceListeners = (msgElement) => {
       if (lastSentMessage === userMsg) return;
       lastSentMessage = userMsg;
 
-      // Mark service as selected
       serviceSelected = true;
 
-      // Disable all service buttons
+
       msgElement.querySelectorAll('.service-btn').forEach(b => {
         b.style.pointerEvents = 'none';
         b.style.opacity = '0.5';
@@ -181,14 +174,11 @@ const typing = () => {
 
 const removeTyping = () => document.getElementById('typing')?.remove();
 
-// Send message to backend
 const sendToBackend = async (message) => {
   if (!message?.trim() || isProcessing) return;
   
   isProcessing = true;
   typing();
-  
-  // Disable input while processing
   input.disabled = true;
   sendBtn.disabled = true;
 
@@ -240,8 +230,6 @@ const sendToBackend = async (message) => {
     input.focus();
   }
 };
-
-// Send button handler
 sendBtn.onclick = async () => {
   const msg = input.value.trim();
   if (!msg || isProcessing) return;
@@ -257,7 +245,6 @@ sendBtn.onclick = async () => {
   await sendToBackend(userMsg);
 };
 
-// Enter key handler
 input.addEventListener('keypress', async (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
@@ -267,12 +254,10 @@ input.addEventListener('keypress', async (e) => {
   }
 });
 
-// Prevent multiple rapid submissions
 input.addEventListener('paste', () => {
   setTimeout(() => lastSentMessage = null, 1000);
 });
 
-// Initial greeting
 document.addEventListener('DOMContentLoaded', () => {
   addMessage(
     "Welcome! I'm here to help you with Moyo Tech Solutions.\n\nPlease choose the service you need:", 
@@ -281,8 +266,7 @@ document.addEventListener('DOMContentLoaded', () => {
     true
   );
   input.focus();
-  
-  // Add connection status indicator
+
   window.addEventListener('online', () => {
     console.log('Connection restored');
   });

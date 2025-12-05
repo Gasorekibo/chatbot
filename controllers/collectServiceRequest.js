@@ -39,15 +39,6 @@ const collectServiceRequest = async (req, res) => {
       createdAt: new Date()
     });
 
-    console.log("New Service Request:", {
-      id: request._id,
-      service,
-      name,
-      email,
-      company,
-      details: details?.substring(0, 100) + "..."
-    });
-
     res.json({
       success: true,
       message: "Request saved! Our team will review it shortly.",
@@ -55,7 +46,6 @@ const collectServiceRequest = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Failed to save service request:", error);
     res.status(500).json({ error: "Failed to save request" });
   }
 };

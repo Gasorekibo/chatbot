@@ -51,7 +51,6 @@ app.get('/oauth/callback', async (req, res) => {
     if (existingEmployee) {
       existingEmployee.refreshToken = data.tokens.refresh_token;
       await existingEmployee.save();
-      console.log('Updated existing employee:', userInfo.email);
     } else {
       const newEmployee = new Employee({
         name: userInfo.name,
@@ -59,7 +58,6 @@ app.get('/oauth/callback', async (req, res) => {
         refreshToken: data.tokens.refresh_token
       });
       await newEmployee.save();
-      console.log('Saved new employee:', userInfo.email);
     }
     
     res.send(`

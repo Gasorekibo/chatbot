@@ -91,8 +91,6 @@ const bookMeetingHandler = async (req, res) => {
       resource: event,
     });
 
-    console.log('✅ Meeting booked:', response.data.htmlLink);
-
     res.json({
       success: true,
       message: 'Meeting booked successfully! Check your calendar.',
