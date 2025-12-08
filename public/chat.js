@@ -4,7 +4,7 @@ const sendBtn = document.getElementById('sendBtn');
 let history = [];
 let isProcessing = false;
 let lastSentMessage = null;
-let serviceSelected = false; // Track if service was already selected
+let serviceSelected = false; 
 const sessionId = 'session_' + Date.now();
 
 const services = [
@@ -14,7 +14,7 @@ const services = [
   { name: "IT Training", icon: "graduation-cap", color: "#9333ea" }
 ];
 
-// Format time in a user-friendly way
+
 const formatTime = (isoString) => {
   return new Date(isoString).toLocaleString('en-US', {
     weekday: 'long',
@@ -26,7 +26,6 @@ const formatTime = (isoString) => {
   });
 };
 
-// Add message with enhanced formatting
 const addMessage = (text, sender, slots = [], showServices = false, confirmed = false) => {
   const msg = document.createElement('div');
   msg.className = `message ${sender}`;
@@ -57,7 +56,7 @@ const addMessage = (text, sender, slots = [], showServices = false, confirmed = 
   }
 
   let servicesHTML = '';
-  if (showServices && !serviceSelected) { // Only show if not already selected
+  if (showServices && !serviceSelected) { 
     servicesHTML = '<div class="services-grid" style="margin-top:16px">' + 
       services.map((svc, idx) => `
         <button class="service-btn" data-service="${svc.name}" 

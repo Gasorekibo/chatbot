@@ -18,7 +18,7 @@ const services = [
   { id: 'training',  name: 'IT Training',          short: 'IT Training' }
 ];
 
-// Fixed: All titles ≤ 24 chars
+
 const LIST_ROWS = services.map(s => ({
   id: s.id,
   title: s.short,
@@ -28,7 +28,7 @@ const LIST_ROWS = services.map(s => ({
               'Certifications & Workshops'
 }));
 
-// ==================== GEMINI SYSTEM PROMPT ====================
+
 const systemInstruction = `
 You are a warm, professional AI assistant for Moyo Tech Solutions — a leading IT consultancy in Rwanda.
 
@@ -60,7 +60,7 @@ OUTPUT FORMATS (exact, no extra text):
 {"service":"Custom Development","name":"Jane","email":"jane@company.com","details":"Need a mobile banking app","timeline":"3 months","budget":"$50k+"}
 `;
 
-// ==================== WHATSAPP SEND FUNCTIONS ====================
+
 async function sendWhatsAppMessage(to, body) {
   const url = `https://graph.facebook.com/v22.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
   try {
@@ -140,6 +140,7 @@ async function sendTimeSlots(to, slots) {
 }
 
 // ==================== GEMINI CHAT PROCESSOR ====================
+
 async function processWithGemini(phoneNumber, message, history = []) {
   try {
     const employee = await Employee.findOne({ email: EMPLOYEE_EMAIL });
@@ -220,7 +221,6 @@ async function processWithGemini(phoneNumber, message, history = []) {
       }
     }
 
-    // Handle lead save
     if (saveMatch) {
       try {
         const data = JSON.parse(saveMatch[1]);
@@ -241,6 +241,7 @@ async function processWithGemini(phoneNumber, message, history = []) {
 }
 
 // ==================== WEBHOOK HANDLERS ====================
+
 const verifyWebhook = (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
@@ -262,7 +263,7 @@ const handleWebhook = async (req, res) => {
     const value = req.body?.entry?.[0]?.changes?.[0]?.value;
     if (!value) return;
 
-    // Ignore status updates
+
     if (value.statuses) {
       console.log(`Status: ${value.statuses[0].status}`);
       return;
@@ -275,7 +276,7 @@ const handleWebhook = async (req, res) => {
     let state = userStates.get(from) || { history: [], awaitingSlot: false, slots: [] };
     state.lastAccess = Date.now();
 
-    // New conversation or greeting
+  
     if (msg.type === 'text') {
       const text = msg.text.body.trim().toLowerCase();
       if (['hi', 'hello', 'hey', 'start', 'menu'].includes(text)) {
@@ -284,7 +285,6 @@ const handleWebhook = async (req, res) => {
         return;
       }
 
-      // Slot number selection
       if (state.awaitingSlot && /^\d+$/.test(msg.text.body)) {
         const idx = parseInt(msg.text.body) - 1;
         if (idx >= 0 && idx < state.slots.length) {
@@ -301,7 +301,6 @@ const handleWebhook = async (req, res) => {
         }
       }
 
-      // Normal message → send to Gemini
       const response = await processWithGemini(from, msg.text.body, state.history);
       await sendWhatsAppMessage(from, response.reply);
 
@@ -311,13 +310,10 @@ const handleWebhook = async (req, res) => {
         state.slots = response.freeSlots;
       }
 
-      // Update history
       state.history.push({ role: 'user', content: msg.text.body });
       state.history.push({ role: 'assistant', content: response.reply });
       userStates.set(from, state);
     }
-
-    // Service selected from list
     else if (msg.type === 'interactive' && msg.interactive?.type === 'list_reply') {
       const service = services.find(s => s.id === msg.interactive.list_reply.id);
       if (service) {
@@ -334,7 +330,6 @@ const handleWebhook = async (req, res) => {
   }
 };
 
-// Cleanup old sessions
 setInterval(() => {
   const cutoff = Date.now() - 30 * 60 * 1000;
   for (const [k, v] of userStates.entries()) {
