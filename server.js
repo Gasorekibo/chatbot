@@ -110,7 +110,11 @@
 
 
 
-// server.js — FINAL, FULLY WORKING VERSION
+//=============================
+
+
+
+
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -133,10 +137,8 @@ app.use(morgan('dev'));
 
 // Connect to MongoDB
 connectDB();
-// WHATSAPP WEBHOOK — THESE MUST BE BEFORE ANY OTHER ROUTES
 app.get('/webhook', verifyWebhook);
-app.post('/webhook', handleWebhook);  // ← Your full AI logic here
-// Google OAuth Routes
+app.post('/webhook', handleWebhook);
 app.get('/auth', (req, res) => {
   const url = oauth2Client.generateAuthUrl({
     access_type: 'offline',
@@ -178,13 +180,7 @@ app.get('/oauth/callback', async (req, res) => {
     res.status(500).send('Authentication failed');
   }
 });
-
-
-
-// Web UI & API routes
-app.get('/', (req, res) => {
-  res.send('Moyo Tech AI WhatsApp Bot is LIVE!');
-});
+app.use(express.static('public'));
 
 app.use('/api/chat', chatRoutes);
 app.post('/api/chat/book', bookMeetingHandler);
