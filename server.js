@@ -133,7 +133,9 @@ app.use(morgan('dev'));
 
 // Connect to MongoDB
 connectDB();
-
+// WHATSAPP WEBHOOK — THESE MUST BE BEFORE ANY OTHER ROUTES
+app.get('/webhook', verifyWebhook);
+app.post('/webhook', handleWebhook);  // ← Your full AI logic here
 // Google OAuth Routes
 app.get('/auth', (req, res) => {
   const url = oauth2Client.generateAuthUrl({
@@ -177,9 +179,7 @@ app.get('/oauth/callback', async (req, res) => {
   }
 });
 
-// WHATSAPP WEBHOOK — THESE MUST BE BEFORE ANY OTHER ROUTES
-app.get('/webhook', verifyWebhook);
-app.post('/webhook', handleWebhook);  // ← Your full AI logic here
+
 
 // Web UI & API routes
 app.get('/', (req, res) => {
