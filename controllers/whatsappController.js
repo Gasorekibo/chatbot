@@ -185,7 +185,7 @@ async function processWithGemini(phoneNumber, message, history = [], userEmail =
 
     let chat = whatsappSessions.get(phoneNumber);
     if (!chat) {
-      chat = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" }).startChat({
+      chat = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }).startChat({
         systemInstruction: { parts: [{ text: prompt }] },
         history: history.map(h => ({ 
           role: h.role === 'user' ? 'user' : 'model', 
