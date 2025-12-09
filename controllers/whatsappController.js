@@ -185,7 +185,7 @@ async function processWithGemini(phoneNumber, message, history = [], userEmail =
 
     let chat = whatsappSessions.get(phoneNumber);
     if (!chat) {
-      chat = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }).startChat({
+      chat = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }).startChat({
         systemInstruction: { parts: [{ text: prompt }] },
         history: history.map(h => ({ 
           role: h.role === 'user' ? 'user' : 'model', 
@@ -281,6 +281,13 @@ async function processWithGemini(phoneNumber, message, history = [], userEmail =
 
   } catch (err) {
     console.error("❌ Gemini error:", err);
+    if (err.status === 429) {
+      return { 
+        reply: "🔄 We're experiencing high demand right now. Please try again in a moment or type 'menu' to see our services.", 
+        showSlots: false, 
+        freeSlots: [] 
+      };
+    }
     return { 
       reply: "I'm having trouble connecting right now. Please try again in a moment!", 
       showSlots: false, 
