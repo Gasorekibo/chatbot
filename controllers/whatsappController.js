@@ -1,7 +1,9 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Employee = require('../models/Employees');
 const ServiceRequest = require('../models/ServiceRequest');
+const UserSession = require('../models/UserSession');
 const getCalendarData = require('../utils/getCalendarData');
+const { getActiveServices } = require('../utils/googleSheets');
 require('dotenv').config();
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
@@ -9,57 +11,40 @@ const EMPLOYEE_EMAIL = process.env.EMPLOYEE_EMAIL;
 
 // ==================== CONFIG & STATE ====================
 const whatsappSessions = new Map();
-const userStates = new Map();
-
-const services = [
-  { id: 'sap',       name: 'SAP Consulting',       short: 'SAP Consulting' },
-  { id: 'dev',       name: 'Custom Development',   short: 'Custom Dev' },
-  { id: 'qa',        name: 'Quality Assurance',    short: 'QA & Testing' },
-  { id: 'training',  name: 'IT Training',          short: 'IT Training' }
-];
-
-
-const LIST_ROWS = services.map(s => ({
-  id: s.id,
-  title: s.short,
-  description: s.id === 'sap' ? 'ERP & SAP Solutions' :
-              s.id === 'dev' ? 'Web/Mobile/Enterprise Apps' :
-              s.id === 'qa' ? 'Manual + Automation Testing' :
-              'Certifications & Workshops'
-}));
-
 
 const systemInstruction = `
 You are a warm, professional AI assistant for Moyo Tech Solutions — a leading IT consultancy in Rwanda.
 
-SERVICES:
-• SAP Consulting
-• Custom Development (Web, Mobile, Enterprise)
-• Software Quality Assurance (Manual + Automation)
-• IT Training & Certifications
+SERVICES WE OFFER:
+{{SERVICES_LIST}}
 
 RULES:
 - NEVER show the service list again — user already saw it
-- After service selection, ask smart follow-up questions per service
-- Collect: Name, Email, Company (optional), Timeline, Budget
+- After service selection, ask smart follow-up questions based on the selected service
+- Collect: Name, Email, Company (optional), Timeline, Budget, and service-specific details
 - When ready: Ask "Would you like to book a free consultation?"
 - If yes → reply with ===SHOW_SLOTS===
 - When user picks a time → output ===BOOK=== JSON only
 - Always be empathetic, clear, and professional
 - Use Africa/Kigali time (+02:00), year 2025 only
+- Be conversational and natural
 
-AVAILABLE SLOTS (2025 only):
+AVAILABLE CONSULTATION SLOTS (2025 only):
 {{AVAILABILITY}}
 
 OUTPUT FORMATS (exact, no extra text):
+
+When user wants to see available slots:
 ===SHOW_SLOTS===
+
+When user confirms a booking:
 ===BOOK===
-{"service":"SAP Consulting","title":"SAP Consultation - NAME","start":"2025-12-15T10:00:00+02:00","end":"2025-12-15T11:00:00+02:00","attendeeEmail":"user@example.com","name":"John Doe","phone":"+250...","company":"ABC Ltd","details":"Needs S/4HANA migration"}
+{"service":"Service Name","title":"Service Consultation - NAME","start":"2025-12-15T10:00:00+02:00","end":"2025-12-15T11:00:00+02:00","attendeeEmail":"user@example.com","name":"John Doe","phone":"+250...","company":"ABC Ltd","details":"User requirements"}
 
+When saving service request:
 ===SAVE_REQUEST===
-{"service":"Custom Development","name":"Jane","email":"jane@company.com","details":"Need a mobile banking app","timeline":"3 months","budget":"$50k+"}
+{"service":"Service Name","name":"Jane","email":"jane@company.com","details":"Detailed requirements","timeline":"3 months","budget":"$50k+"}
 `;
-
 
 async function sendWhatsAppMessage(to, body) {
   const url = `https://graph.facebook.com/v22.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
@@ -81,11 +66,30 @@ async function sendWhatsAppMessage(to, body) {
     if (!res.ok) throw new Error(JSON.stringify(data));
     return data;
   } catch (err) {
-    console.error('Send message failed:', err.message);
+    console.error('❌ Send message failed:', err.message);
   }
 }
 
 async function sendServiceList(to) {
+  console.log('📤 Fetching services from database for WhatsApp user:', to);
+  
+  // Fetch active services from MongoDB - THIS IS THE KEY PART
+  const services = await getActiveServices();
+  
+  console.log(`✅ Retrieved ${services.length} active services:`, services.map(s => s.name).join(', '));
+  
+  if (services.length === 0) {
+    await sendWhatsAppMessage(to, "Sorry, no services are currently available. Please contact us directly.");
+    return;
+  }
+
+  // Build interactive list rows from database services
+  const LIST_ROWS = services.map(s => ({
+    id: s.id,
+    title: s.short || s.name,
+    description: s.details || `Professional ${s.name}`
+  }));
+
   const url = `https://graph.facebook.com/v22.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
   try {
     const res = await fetch(url, {
@@ -111,18 +115,27 @@ async function sendServiceList(to) {
       })
     });
     const data = await res.json();
+    
     if (!res.ok) {
-      console.error('List send failed:', data);
-      await sendWhatsAppMessage(to, "Welcome to Moyo Tech! How can we help you today?\n\n1. SAP Consulting\n2. Custom Development\n3. QA & Testing\n4. IT Training\n\nReply with a number!");
+      console.error('❌ Interactive list send failed:', data);
+      // Fallback to text message with numbered services
+      let fallbackText = "Welcome to Moyo Tech! How can we help you today?\n\n";
+      services.forEach((s, i) => {
+        fallbackText += `${i + 1}. ${s.short || s.name}\n`;
+      });
+      fallbackText += "\nReply with a number to select a service!";
+      await sendWhatsAppMessage(to, fallbackText);
+    } else {
+      console.log('✅ Service list sent successfully');
     }
     return data;
   } catch (err) {
-    console.error('sendServiceList error:', err);
+    console.error('❌ sendServiceList error:', err);
   }
 }
 
 async function sendTimeSlots(to, slots) {
-  let text = 'Available Consultation Slots (2025):\n\n';
+  let text = '📅 Available Consultation Slots (2025):\n\n';
   slots.slice(0, 10).forEach((slot, i) => {
     const date = new Date(slot.isoStart);
     const formatted = date.toLocaleString('en-US', {
@@ -135,7 +148,7 @@ async function sendTimeSlots(to, slots) {
     });
     text += `${i + 1}. ${formatted}\n`;
   });
-  text += '\nReply with the number to book your slot!';
+  text += '\n✨ Reply with the number to book your slot!';
   await sendWhatsAppMessage(to, text);
 }
 
@@ -161,13 +174,26 @@ async function processWithGemini(phoneNumber, message, history = []) {
       };
     });
 
-    const prompt = systemInstruction.replace('{{AVAILABILITY}}', JSON.stringify(freeSlots.map(s => s.display), null, 2));
+    // Get active services from MongoDB - DYNAMIC SERVICES
+    const services = await getActiveServices();
+    const servicesList = services.map(s => 
+      `• ${s.name}${s.details ? ' - ' + s.details : ''}`
+    ).join('\n');
+
+    console.log('🤖 Processing with Gemini, services available:', services.length);
+
+    let prompt = systemInstruction
+      .replace('{{SERVICES_LIST}}', servicesList)
+      .replace('{{AVAILABILITY}}', JSON.stringify(freeSlots.map(s => s.display), null, 2));
 
     let chat = whatsappSessions.get(phoneNumber);
     if (!chat) {
       chat = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }).startChat({
         systemInstruction: { parts: [{ text: prompt }] },
-        history: history.map(h => ({ role: h.role === 'user' ? 'user' : 'model', parts: [{ text: h.content }] }))
+        history: history.map(h => ({ 
+          role: h.role === 'user' ? 'user' : 'model', 
+          parts: [{ text: h.content }] 
+        }))
       });
       whatsappSessions.set(phoneNumber, chat);
     }
@@ -200,27 +226,29 @@ async function processWithGemini(phoneNumber, message, history = []) {
             start: start.toISOString(),
             end: end.toISOString(),
             attendeeEmail: data.attendeeEmail,
-            description: `Service: ${data.service}\nPhone: ${phoneNumber}\nCompany: ${data.company || 'N/A'}`
+            description: `Service: ${data.service}\nPhone: ${phoneNumber}\nCompany: ${data.company || 'N/A'}\nDetails: ${data.details || 'N/A'}`
           })
         });
 
         const result = await res.json();
         if (result.success) {
-          reply = `Booked! Your consultation is confirmed for:\n\n${start.toLocaleString('en-US', {
+          reply = `✅ Booking Confirmed!\n\nYour consultation is scheduled for:\n📅 ${start.toLocaleString('en-US', {
             dateStyle: 'full',
             timeStyle: 'short',
             timeZone: 'Africa/Kigali'
-          })}\n\nCheck your email (${data.attendeeEmail}) for the Google Meet link.\n\nThank you for choosing Moyo Tech!`;
+          })}\n\n📧 Check your email (${data.attendeeEmail}) for the Google Meet link.\n\n🎉 Thank you for choosing Moyo Tech Solutions!`;
         } else {
-          reply = "That slot was just taken. Here are updated times:";
+          reply = "⚠️ That slot was just taken. Let me show you updated available times:";
           return { reply, showSlots: true, freeSlots };
         }
       } catch (e) {
-        reply = "Booking failed. Let me show updated slots:";
+        console.error('❌ Booking failed:', e);
+        reply = "❌ Booking failed. Let me show you updated slots:";
         return { reply, showSlots: true, freeSlots };
       }
     }
 
+    // Save service request
     if (saveMatch) {
       try {
         const data = JSON.parse(saveMatch[1]);
@@ -229,14 +257,21 @@ async function processWithGemini(phoneNumber, message, history = []) {
           phone: data.phone || phoneNumber,
           status: 'new'
         });
-      } catch (e) { console.error("Save failed:", e); }
+        console.log('✅ Service request saved:', data.service);
+      } catch (e) { 
+        console.error("❌ Save request failed:", e); 
+      }
     }
 
     return { reply, showSlots, freeSlots: showSlots ? freeSlots : [] };
 
   } catch (err) {
-    console.error("Gemini error:", err);
-    return { reply: "I'm having trouble connecting right now. Please try again in a moment!", showSlots: false, freeSlots: [] };
+    console.error("❌ Gemini error:", err);
+    return { 
+      reply: "I'm having trouble connecting right now. Please try again in a moment!", 
+      showSlots: false, 
+      freeSlots: [] 
+    };
   }
 }
 
@@ -248,24 +283,24 @@ const verifyWebhook = (req, res) => {
   const challenge = req.query['hub.challenge'];
 
   if (mode && token === process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN) {
-    console.log('Webhook verified');
+    console.log('✅ Webhook verified');
     res.send(challenge);
   } else {
+    console.log('❌ Webhook verification failed');
     res.sendStatus(403);
   }
 };
 
 const handleWebhook = async (req, res) => {
-  console.log('\nINCOMING WEBHOOK', new Date().toISOString());
+  console.log('\n📨 INCOMING WEBHOOK', new Date().toISOString());
   res.status(200).send('OK');
 
   try {
     const value = req.body?.entry?.[0]?.changes?.[0]?.value;
     if (!value) return;
 
-
     if (value.statuses) {
-      console.log(`Status: ${value.statuses[0].status}`);
+      console.log(`📊 Status update: ${value.statuses[0].status}`);
       return;
     }
 
@@ -273,71 +308,115 @@ const handleWebhook = async (req, res) => {
     if (!msg) return;
 
     const from = msg.from;
-    let state = userStates.get(from) || { history: [], awaitingSlot: false, slots: [] };
-    state.lastAccess = Date.now();
+    console.log(`👤 Message from: ${from}`);
+    
+    // Load or create user session from MongoDB
+    let session = await UserSession.findOne({ phone: from });
+    if (!session) {
+      console.log('🆕 Creating new user session');
+      session = await UserSession.create({
+        phone: from,
+        history: [],
+        state: { awaitingSlot: false, slots: [] },
+        lastAccess: new Date()
+      });
+    }
 
-  
+    // Update last access
+    session.lastAccess = new Date();
+
     if (msg.type === 'text') {
       const text = msg.text.body.trim().toLowerCase();
-      if (['hi', 'hello', 'hey', 'start', 'menu'].includes(text)) {
+      console.log(`💬 User message: "${msg.text.body}"`);
+      
+      // Reset commands - SHOW SERVICES FROM DATABASE
+      if (['hi', 'hello', 'hey', 'start', 'menu', 'services'].includes(text)) {
+        console.log('🔄 Sending service list from database...');
         await sendServiceList(from);
-        userStates.set(from, state);
+        session.history = [];
+        session.state = { awaitingSlot: false, slots: [] };
+        await session.save();
         return;
       }
 
-      if (state.awaitingSlot && /^\d+$/.test(msg.text.body)) {
+      // Handle slot selection
+      if (session.state.awaitingSlot && /^\d+$/.test(msg.text.body)) {
         const idx = parseInt(msg.text.body) - 1;
-        if (idx >= 0 && idx < state.slots.length) {
-          const slot = state.slots[idx];
+        if (idx >= 0 && idx < session.state.slots.length) {
+          const slot = session.state.slots[idx];
           const formatted = new Date(slot.isoStart).toLocaleString('en-US', {
             dateStyle: 'full', timeStyle: 'short', timeZone: 'Africa/Kigali'
           });
-          const geminiResponse = await processWithGemini(from, `Book this time: ${formatted}`, state.history);
+          console.log(`📅 User selected slot ${idx + 1}: ${formatted}`);
+          const geminiResponse = await processWithGemini(from, `Book this time: ${formatted}`, session.history);
           await sendWhatsAppMessage(from, geminiResponse.reply);
-          state.awaitingSlot = false;
-          state.slots = [];
-          userStates.set(from, state);
+          
+          session.state.awaitingSlot = false;
+          session.state.slots = [];
+          session.history.push({ role: 'user', content: `Selected slot ${idx + 1}`, timestamp: new Date() });
+          session.history.push({ role: 'model', content: geminiResponse.reply, timestamp: new Date() });
+          await session.save();
           return;
         }
       }
 
-      const response = await processWithGemini(from, msg.text.body, state.history);
+      // Regular chat
+      const response = await processWithGemini(from, msg.text.body, session.history);
       await sendWhatsAppMessage(from, response.reply);
 
       if (response.showSlots && response.freeSlots.length > 0) {
         await sendTimeSlots(from, response.freeSlots);
-        state.awaitingSlot = true;
-        state.slots = response.freeSlots;
+        session.state.awaitingSlot = true;
+        session.state.slots = response.freeSlots;
       }
 
-      state.history.push({ role: 'user', content: msg.text.body });
-      state.history.push({ role: 'assistant', content: response.reply });
-      userStates.set(from, state);
+      session.history.push({ role: 'user', content: msg.text.body, timestamp: new Date() });
+      session.history.push({ role: 'model', content: response.reply, timestamp: new Date() });
+      await session.save();
     }
     else if (msg.type === 'interactive' && msg.interactive?.type === 'list_reply') {
+      console.log(`🎯 User selected service: ${msg.interactive.list_reply.id}`);
+      
+      // Get services from database to match selection
+      const services = await getActiveServices();
       const service = services.find(s => s.id === msg.interactive.list_reply.id);
+      
       if (service) {
-        const response = await processWithGemini(from, `I need ${service.name}`, state.history);
+        console.log(`✅ Service found: ${service.name}`);
+        const response = await processWithGemini(from, `I need ${service.name}`, session.history);
         await sendWhatsAppMessage(from, response.reply);
-        state.history.push({ role: 'user', content: `Selected: ${service.name}` });
-        state.history.push({ role: 'assistant', content: response.reply });
-        userStates.set(from, state);
+        
+        session.state.selectedService = service.id;
+        session.history.push({ role: 'user', content: `Selected: ${service.name}`, timestamp: new Date() });
+        session.history.push({ role: 'model', content: response.reply, timestamp: new Date() });
+        await session.save();
+      } else {
+        console.log(`⚠️ Service not found: ${msg.interactive.list_reply.id}`);
+        await sendWhatsAppMessage(from, "Sorry, that service is no longer available. Let me show you our current services.");
+        await sendServiceList(from);
       }
     }
 
   } catch (err) {
-    console.error('Webhook error:', err);
+    console.error('❌ Webhook error:', err);
   }
 };
 
-setInterval(() => {
-  const cutoff = Date.now() - 30 * 60 * 1000;
-  for (const [k, v] of userStates.entries()) {
-    if (v.lastAccess < cutoff) userStates.delete(k);
+// Cleanup old sessions (keep 24 hours)
+setInterval(async () => {
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  try {
+    const result = await UserSession.deleteMany({ lastAccess: { $lt: cutoff } });
+    
+    // Clean in-memory sessions
+    whatsappSessions.clear();
+    
+    if (result.deletedCount > 0) {
+      console.log(`🧹 Cleaned up ${result.deletedCount} old sessions`);
+    }
+  } catch (err) {
+    console.error('❌ Cleanup error:', err);
   }
-  for (const [k, v] of whatsappSessions.entries()) {
-    if (v.lastAccess < cutoff) whatsappSessions.delete(k);
-  }
-}, 5 * 60 * 1000);
+}, 60 * 60 * 1000); // Every hour
 
 module.exports = { verifyWebhook, handleWebhook };
