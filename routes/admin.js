@@ -11,7 +11,6 @@ router.post('/template', async (req, res) => {
   }
 
   try {
-    // to is an array of phone numbers
 
    await to.forEach(async (phoneNumber) => {
       await initiateWhatsappMessage(phoneNumber, templateName);

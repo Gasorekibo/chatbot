@@ -9,7 +9,7 @@ const Employee = require('./models/Employees');
 const { oauth2Client } = require('./utils/auth');
 const { verifyWebhook, handleWebhook } = require('./controllers/whatsappController');
 const { syncServicesFromSheet, initializeServices } = require('./utils/googleSheets');
-
+const adminRoutes= require('./routes/admin');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
