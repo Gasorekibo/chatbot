@@ -18,28 +18,31 @@ You are a warm, professional AI assistant for Moyo Tech Solutions — a leading 
 SERVICES WE OFFER:
 {{SERVICES_LIST}}
 
-RULES:
-- NEVER show the service list again — user already saw it
-- After service selection, ask smart follow-up questions based on the selected service
-- Collect: Name, Email, Company (optional), Timeline, Budget, and service-specific details
-- When ready: Ask "Would you like to book a free consultation?"
-- If yes → reply with ===SHOW_SLOTS===
-- When user picks a time → output ===BOOK=== JSON only
-- Always be empathetic, clear, and professional
-- Use Africa/Kigali time (+02:00), year 2025 only
-- Be conversational and natural
+IMPORTANT BOOKING RULES:
+- The current date is December 9, 2025
+- ONLY use dates from the AVAILABLE_SLOTS list below
+- When user requests a specific day/time, find the CLOSEST MATCH in AVAILABLE_SLOTS
+- NEVER invent dates - only use what's in AVAILABLE_SLOTS
+- When showing slots, present them clearly with day names
+- If user picks a time not in the list, suggest the closest available option
 
-AVAILABLE CONSULTATION SLOTS (2025 only):
-{{AVAILABILITY}}
+CONVERSATION FLOW:
+1. After service selection, ask smart follow-up questions based on the selected service
+2. Collect: Name, Email, Company (optional), Timeline, Budget, and service-specific details
+3. When ready: Ask "Would you like to book a free consultation?"
+4. If yes → show available dates naturally in conversation
+5. When user picks a time → verify it exists in AVAILABLE_SLOTS, then output ===BOOK=== JSON only
+
+Always be empathetic, clear, and professional. Use Africa/Kigali time (+02:00).
+
+AVAILABLE CONSULTATION SLOTS (THESE ARE THE ONLY VALID SLOTS):
+{{AVAILABLE_SLOTS}}
 
 OUTPUT FORMATS (exact, no extra text):
 
-When user wants to see available slots:
-===SHOW_SLOTS===
-
-When user confirms a booking:
+When user confirms a booking with a specific time that EXISTS in AVAILABLE_SLOTS:
 ===BOOK===
-{"service":"Service Name","title":"Service Consultation - NAME","start":"2025-12-15T10:00:00+02:00","end":"2025-12-15T11:00:00+02:00","attendeeEmail":"user@example.com","name":"John Doe","phone":"+250...","company":"ABC Ltd","details":"User requirements"}
+{"service":"Service Name","title":"Service Consultation - NAME","start":"2025-12-10T10:00:00+02:00","end":"2025-12-10T11:00:00+02:00","attendeeEmail":"user@example.com","name":"John Doe","phone":"+250...","company":"ABC Ltd","details":"User requirements"}
 
 When saving service request:
 ===SAVE_REQUEST===
@@ -73,7 +76,6 @@ async function sendWhatsAppMessage(to, body) {
 async function sendServiceList(to) {
   console.log('📤 Fetching services from database for WhatsApp user:', to);
   
-  // Fetch active services from MongoDB - THIS IS THE KEY PART
   const services = await getActiveServices();
   
   console.log(`✅ Retrieved ${services.length} active services:`, services.map(s => s.name).join(', '));
@@ -83,7 +85,6 @@ async function sendServiceList(to) {
     return;
   }
 
-  // Build interactive list rows from database services
   const LIST_ROWS = services.map(s => ({
     id: s.id,
     title: s.short || s.name,
@@ -118,7 +119,6 @@ async function sendServiceList(to) {
     
     if (!res.ok) {
       console.error('❌ Interactive list send failed:', data);
-      // Fallback to text message with numbered services
       let fallbackText = "Welcome to Moyo Tech! How can we help you today?\n\n";
       services.forEach((s, i) => {
         fallbackText += `${i + 1}. ${s.short || s.name}\n`;
@@ -134,27 +134,9 @@ async function sendServiceList(to) {
   }
 }
 
-async function sendTimeSlots(to, slots) {
-  let text = '📅 Available Consultation Slots (2025):\n\n';
-  slots.slice(0, 10).forEach((slot, i) => {
-    const date = new Date(slot.isoStart);
-    const formatted = date.toLocaleString('en-US', {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-      timeZone: 'Africa/Kigali'
-    });
-    text += `${i + 1}. ${formatted}\n`;
-  });
-  text += '\n✨ Reply with the number to book your slot!';
-  await sendWhatsAppMessage(to, text);
-}
-
 // ==================== GEMINI CHAT PROCESSOR ====================
 
-async function processWithGemini(phoneNumber, message, history = []) {
+async function processWithGemini(phoneNumber, message, history = [], userEmail = null) {
   try {
     const employee = await Employee.findOne({ email: EMPLOYEE_EMAIL });
     if (!employee) throw new Error("Calendar not connected");
@@ -162,29 +144,44 @@ async function processWithGemini(phoneNumber, message, history = []) {
     const token = employee.getDecryptedToken();
     const calendar = await getCalendarData(EMPLOYEE_EMAIL, token);
 
+    // Format slots for Gemini with full details
     const freeSlots = calendar.freeSlots.map(s => {
       const start = new Date(s.start);
       const end = new Date(s.end);
-      if (start.getFullYear() < 2025) start.setFullYear(2025);
-      if (end.getFullYear() < 2025) end.setFullYear(2025);
+      
       return {
         isoStart: start.toISOString(),
         isoEnd: end.toISOString(),
-        display: start.toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short', timeZone: 'Africa/Kigali' })
+        display: start.toLocaleString('en-US', { 
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long', 
+          day: 'numeric',
+          hour: 'numeric', 
+          minute: '2-digit',
+          timeZone: 'Africa/Kigali' 
+        }),
+        dayName: start.toLocaleString('en-US', { weekday: 'long', timeZone: 'Africa/Kigali' }),
+        date: start.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Africa/Kigali' }),
+        time: start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'Africa/Kigali' })
       };
     });
 
-    // Get active services from MongoDB - DYNAMIC SERVICES
     const services = await getActiveServices();
     const servicesList = services.map(s => 
       `• ${s.name}${s.details ? ' - ' + s.details : ''}`
     ).join('\n');
 
-    console.log('🤖 Processing with Gemini, services available:', services.length);
+    console.log('🤖 Processing with Gemini, available slots:', freeSlots.length);
+
+    // Create detailed slot list for Gemini
+    const slotDetails = freeSlots.map((s, i) => 
+      `${i + 1}. ${s.dayName}, ${s.date} at ${s.time} (ISO: ${s.isoStart})`
+    ).join('\n');
 
     let prompt = systemInstruction
       .replace('{{SERVICES_LIST}}', servicesList)
-      .replace('{{AVAILABILITY}}', JSON.stringify(freeSlots.map(s => s.display), null, 2));
+      .replace('{{AVAILABLE_SLOTS}}', slotDetails);
 
     let chat = whatsappSessions.get(phoneNumber);
     if (!chat) {
@@ -201,22 +198,35 @@ async function processWithGemini(phoneNumber, message, history = []) {
     const result = await chat.sendMessage(message);
     const text = result.response.text();
 
-    const showSlots = text.includes('===SHOW_SLOTS===');
-    const bookMatch = text.match(/===BOOK===\s*(\{.*\})/s);
-    const saveMatch = text.match(/===SAVE_REQUEST===\s*(\{.*\})/s);
+    const bookMatch = text.match(/===BOOK===\s*(\{.*?\})/s);
+    const saveMatch = text.match(/===SAVE_REQUEST===\s*(\{.*?\})/s);
 
     let reply = text
-      .replace(/===SHOW_SLOTS===|===BOOK===\s*\{.*\}|===SAVE_REQUEST===\s*\{.*\}|```json|```/gi, '')
+      .replace(/===BOOK===\s*\{.*?\}|===SAVE_REQUEST===\s*\{.*?\}|```json|```/gi, '')
       .trim() || "I'm here to help! How can I assist you today?";
 
     // Handle booking
     if (bookMatch) {
       try {
         const data = JSON.parse(bookMatch[1]);
-        const start = new Date(data.start);
-        start.setFullYear(2025);
-        const end = new Date(start);
-        end.setHours(start.getHours() + 1);
+        const requestedStart = new Date(data.start);
+        
+        // Verify the slot exists in our available slots
+        const matchingSlot = freeSlots.find(slot => {
+          const slotStart = new Date(slot.isoStart);
+          return Math.abs(slotStart - requestedStart) < 60000; // Within 1 minute
+        });
+
+        if (!matchingSlot) {
+          console.log('⚠️ Requested slot not found in available slots');
+          reply = "I apologize, but that specific time slot is not available. Let me show you the currently available times:";
+          return { reply, showSlots: true, freeSlots };
+        }
+
+        const start = new Date(matchingSlot.isoStart);
+        const end = new Date(matchingSlot.isoEnd);
+
+        console.log(`📅 Booking slot: ${start.toISOString()}`);
 
         const res = await fetch('https://catherin-postsaccular-rosann.ngrok-free.dev/api/chat/book', {
           method: 'POST',
@@ -225,25 +235,29 @@ async function processWithGemini(phoneNumber, message, history = []) {
             title: data.title,
             start: start.toISOString(),
             end: end.toISOString(),
-            attendeeEmail: data.attendeeEmail,
+            attendeeEmail: userEmail || data.attendeeEmail,
             description: `Service: ${data.service}\nPhone: ${phoneNumber}\nCompany: ${data.company || 'N/A'}\nDetails: ${data.details || 'N/A'}`
           })
         });
 
         const result = await res.json();
         if (result.success) {
-          reply = `✅ Booking Confirmed!\n\nYour consultation is scheduled for:\n📅 ${start.toLocaleString('en-US', {
-            dateStyle: 'full',
-            timeStyle: 'short',
+          reply = `✅ *Booking Confirmed!*\n\n📅 *Date & Time:*\n${start.toLocaleString('en-US', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
             timeZone: 'Africa/Kigali'
-          })}\n\n📧 Check your email (${data.attendeeEmail}) for the Google Meet link.\n\n🎉 Thank you for choosing Moyo Tech Solutions!`;
+          })} (Africa/Kigali time)\n\n📧 *Check your email* (${userEmail || data.attendeeEmail}) for the Google Meet link and calendar invite.\n\n🎉 Thank you for choosing Moyo Tech Solutions! We look forward to speaking with you.`;
         } else {
           reply = "⚠️ That slot was just taken. Let me show you updated available times:";
           return { reply, showSlots: true, freeSlots };
         }
       } catch (e) {
         console.error('❌ Booking failed:', e);
-        reply = "❌ Booking failed. Let me show you updated slots:";
+        reply = "❌ Sorry, there was an issue with the booking. Let me show you the available slots again:";
         return { reply, showSlots: true, freeSlots };
       }
     }
@@ -263,7 +277,7 @@ async function processWithGemini(phoneNumber, message, history = []) {
       }
     }
 
-    return { reply, showSlots, freeSlots: showSlots ? freeSlots : [] };
+    return { reply, showSlots: false, freeSlots };
 
   } catch (err) {
     console.error("❌ Gemini error:", err);
@@ -312,12 +326,14 @@ const handleWebhook = async (req, res) => {
     
     // Load or create user session from MongoDB
     let session = await UserSession.findOne({ phone: from });
+    const isNewUser = !session;
+    
     if (!session) {
       console.log('🆕 Creating new user session');
       session = await UserSession.create({
         phone: from,
         history: [],
-        state: { awaitingSlot: false, slots: [] },
+        state: { selectedService: null },
         lastAccess: new Date()
       });
     }
@@ -329,45 +345,37 @@ const handleWebhook = async (req, res) => {
       const text = msg.text.body.trim().toLowerCase();
       console.log(`💬 User message: "${msg.text.body}"`);
       
-      // Reset commands - SHOW SERVICES FROM DATABASE
-      if (['hi', 'hello', 'hey', 'start', 'menu', 'services'].includes(text)) {
-        console.log('🔄 Sending service list from database...');
+      // Handle initial message for new users - send welcome + services
+      if (isNewUser) {
+        const welcomeMsg = "👋 Welcome to *Moyo Tech Solutions*!\n\nWe're a leading IT consultancy in Rwanda, ready to help transform your business with cutting-edge technology solutions.\n\nLet me show you what we can do for you:";
+        await sendWhatsAppMessage(from, welcomeMsg);
         await sendServiceList(from);
+        return;
+      }
+      
+      // Service list commands (for existing users)
+      if (['hi', 'hello', 'hey', 'start', 'menu', 'services', 'restart'].includes(text)) {
+        console.log('🔄 Showing service list...');
+        await sendServiceList(from);
+        // Reset session but keep it
         session.history = [];
-        session.state = { awaitingSlot: false, slots: [] };
+        session.state = { selectedService: null };
+        whatsappSessions.delete(from); // Clear Gemini session
         await session.save();
         return;
       }
 
-      // Handle slot selection
-      if (session.state.awaitingSlot && /^\d+$/.test(msg.text.body)) {
-        const idx = parseInt(msg.text.body) - 1;
-        if (idx >= 0 && idx < session.state.slots.length) {
-          const slot = session.state.slots[idx];
-          const formatted = new Date(slot.isoStart).toLocaleString('en-US', {
-            dateStyle: 'full', timeStyle: 'short', timeZone: 'Africa/Kigali'
-          });
-          console.log(`📅 User selected slot ${idx + 1}: ${formatted}`);
-          const geminiResponse = await processWithGemini(from, `Book this time: ${formatted}`, session.history);
-          await sendWhatsAppMessage(from, geminiResponse.reply);
-          
-          session.state.awaitingSlot = false;
-          session.state.slots = [];
-          session.history.push({ role: 'user', content: `Selected slot ${idx + 1}`, timestamp: new Date() });
-          session.history.push({ role: 'model', content: geminiResponse.reply, timestamp: new Date() });
-          await session.save();
-          return;
-        }
-      }
-
-      // Regular chat
-      const response = await processWithGemini(from, msg.text.body, session.history);
+      // Regular chat - let Gemini handle naturally
+      const userEmail = session.state.email || null;
+      const response = await processWithGemini(from, msg.text.body, session.history, userEmail);
       await sendWhatsAppMessage(from, response.reply);
 
-      if (response.showSlots && response.freeSlots.length > 0) {
-        await sendTimeSlots(from, response.freeSlots);
-        session.state.awaitingSlot = true;
-        session.state.slots = response.freeSlots;
+      // Store user email if found in response
+      if (response.reply.includes('@') && !session.state.email) {
+        const emailMatch = response.reply.match(/[\w.-]+@[\w.-]+\.\w+/);
+        if (emailMatch) {
+          session.state.email = emailMatch[0];
+        }
       }
 
       session.history.push({ role: 'user', content: msg.text.body, timestamp: new Date() });
@@ -377,13 +385,12 @@ const handleWebhook = async (req, res) => {
     else if (msg.type === 'interactive' && msg.interactive?.type === 'list_reply') {
       console.log(`🎯 User selected service: ${msg.interactive.list_reply.id}`);
       
-      // Get services from database to match selection
       const services = await getActiveServices();
       const service = services.find(s => s.id === msg.interactive.list_reply.id);
       
       if (service) {
         console.log(`✅ Service found: ${service.name}`);
-        const response = await processWithGemini(from, `I need ${service.name}`, session.history);
+        const response = await processWithGemini(from, `I'm interested in ${service.name}. I'd like to learn more about this service.`, session.history);
         await sendWhatsAppMessage(from, response.reply);
         
         session.state.selectedService = service.id;
