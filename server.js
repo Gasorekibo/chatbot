@@ -8,7 +8,8 @@ const bookMeetingHandler = require('./controllers/bookMeeting');
 const Employee = require('./models/Employees');
 const { oauth2Client } = require('./utils/auth');
 const { verifyWebhook, handleWebhook } = require('./controllers/whatsappController');
-
+const { initiateWhatsappMessage } = require('./controllers/initiateMessage');
+const adminRoutes = require('./routes/admin');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -65,6 +66,7 @@ app.use(express.static('public'));
 
 app.use('/api/chat', chatRoutes);
 app.post('/api/chat/book', bookMeetingHandler);
+app.use('/api/outreach', adminRoutes);
 
 app.get('/employees', async (req, res) => {
   const employees = await Employee.find({}, 'name email');
@@ -90,7 +92,7 @@ app.post('/calendar-data', async (req, res) => {
   }
 });
 
-// Start server
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
+  //initiateWhatsappMessage('250787929698', 'gservices');
 });
