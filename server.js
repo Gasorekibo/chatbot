@@ -92,6 +92,8 @@ app.get('/oauth/callback', async (req, res) => {
 app.use(express.static('public'));
 app.use('/api/chat', chatRoutes);
 app.post('/api/chat/book', bookMeetingHandler);
+app.use('/api/outreach', adminRoutes);
+
 app.get('/employees', async (req, res) => {
   const employees = await Employee.find({}, 'name email');
   res.json(employees);
