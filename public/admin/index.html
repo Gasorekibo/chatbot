@@ -758,11 +758,11 @@
           showToast(`Reminder sent to ${result.sent || result.count || 'many'} users`, 'success');
           fetchData(); // optional refresh
         } else {
-          showToast(result.error || 'Failed to send reminder', 'error');
+          showToast(result.error || 'Failed to send message', 'error');
         }
       } catch (err) {
         console.error(err);
-        showToast('Network error – could not send reminder', 'error');
+        showToast('Network error – could not send message', 'error');
       }
     }
 
