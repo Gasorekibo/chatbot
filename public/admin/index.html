@@ -680,13 +680,6 @@
           <td><span class="badge badge-user">${user.history?.length||0} messages</span></td>
           <td>${user.lastAccess ? new Date(user.lastAccess).toLocaleString() : 'N/A'}</td>
         </tr>`;
-        if (user.history?.length) {
-          html += '<tr><td colspan="5"><div style="padding-left:20px;">';
-          user.history.slice(-3).forEach(h => {
-            html += `<div class="history-item"><span class="badge ${h.role==='user'?'badge-user':'badge-model'}">${h.role}</span> ${h.content.substring(0,100)}${h.content.length>100?'...':''}</div>`;
-          });
-          html += '</div></td></tr>';
-        }
       });
       html += '</tbody></table></div>';
       container.innerHTML = html;
