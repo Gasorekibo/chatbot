@@ -52,7 +52,7 @@ app.get('/oauth/callback', async (req, res) => {
     });
     const userInfo = await userInfoRes.json();
 
-    const employee = await Employee.findOneAndUpdate(
+    await Employee.findOneAndUpdate(
       { email: userInfo.email },
       { 
         name: userInfo.name,
