@@ -74,11 +74,9 @@ async function sendWhatsAppMessage(to, body) {
 }
 
 async function sendServiceList(to) {
-  console.log('📤 Fetching services from database for WhatsApp user:', to);
   
   const services = await getActiveServices();
   
-  console.log(`✅ Retrieved ${services.length} active services:`, services.map(s => s.name).join(', '));
   
   if (services.length === 0) {
     await sendWhatsAppMessage(to, "Sorry, no services are currently available. Please contact us directly.");
@@ -172,7 +170,6 @@ async function processWithGemini(phoneNumber, message, history = [], userEmail =
       `• ${s.name}${s.details ? ' - ' + s.details : ''}`
     ).join('\n');
 
-    console.log('🤖 Processing with Gemini, available slots:', freeSlots.length);
 
     // Create detailed slot list for Gemini
     const slotDetails = freeSlots.map((s, i) => 
@@ -218,15 +215,12 @@ async function processWithGemini(phoneNumber, message, history = [], userEmail =
         });
 
         if (!matchingSlot) {
-          console.log('⚠️ Requested slot not found in available slots');
           reply = "I apologize, but that specific time slot is not available. Let me show you the currently available times:";
           return { reply, showSlots: true, freeSlots };
         }
 
         const start = new Date(matchingSlot.isoStart);
         const end = new Date(matchingSlot.isoEnd);
-
-        console.log(`📅 Booking slot: ${start.toISOString()}`);
 
         const res = await fetch('https://catherin-postsaccular-rosann.ngrok-free.dev/api/chat/book', {
           method: 'POST',
@@ -271,9 +265,8 @@ async function processWithGemini(phoneNumber, message, history = [], userEmail =
           phone: data.phone || phoneNumber,
           status: 'new'
         });
-        console.log('✅ Service request saved:', data.service);
       } catch (e) { 
-        console.error("❌ Save request failed:", e); 
+        throw e
       }
     }
 
@@ -304,16 +297,14 @@ const verifyWebhook = (req, res) => {
   const challenge = req.query['hub.challenge'];
 
   if (mode && token === process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN) {
-    console.log('✅ Webhook verified');
+
     res.send(challenge);
   } else {
-    console.log('❌ Webhook verification failed');
     res.sendStatus(403);
   }
 };
 
 const handleWebhook = async (req, res) => {
-  console.log('\n📨 INCOMING WEBHOOK', new Date().toISOString());
   res.status(200).send('OK');
 
   try {
@@ -321,7 +312,6 @@ const handleWebhook = async (req, res) => {
     if (!value) return;
 
     if (value.statuses) {
-      console.log(`📊 Status update: ${value.statuses[0].status}`);
       return;
     }
 
@@ -329,15 +319,12 @@ const handleWebhook = async (req, res) => {
     if (!msg) return;
 
     const from = msg.from;
-    console.log(`👤 Message from: ${from}`);
     
-    // Load or create user session from MongoDB
     let session = await UserSession.findOne({ phone: from });
     const isNewUser = !session;
-    
     if (!session) {
-      console.log('🆕 Creating new user session');
       session = await UserSession.create({
+        name: value.contacts?.[0]?.profile?.name || 'Client',
         phone: from,
         history: [],
         state: { selectedService: null },
@@ -350,34 +337,26 @@ const handleWebhook = async (req, res) => {
 
     if (msg.type === 'text') {
       const text = msg.text.body.trim().toLowerCase();
-      console.log(`💬 User message: "${msg.text.body}"`);
       
-      // Handle initial message for new users - send welcome + services
       if (isNewUser) {
         const welcomeMsg = "👋 Welcome to *Moyo Tech Solutions*!\n\nWe're a leading IT consultancy in Rwanda, ready to help transform your business with cutting-edge technology solutions.\n\nLet me show you what we can do for you:";
         await sendWhatsAppMessage(from, welcomeMsg);
         await sendServiceList(from);
         return;
       }
-      
-      // Service list commands (for existing users)
       if (['hi', 'hello', 'hey', 'start', 'menu', 'services', 'restart'].includes(text)) {
-        console.log('🔄 Showing service list...');
         await sendServiceList(from);
-        // Reset session but keep it
         session.history = [];
         session.state = { selectedService: null };
-        whatsappSessions.delete(from); // Clear Gemini session
+        whatsappSessions.delete(from); 
         await session.save();
         return;
       }
 
-      // Regular chat - let Gemini handle naturally
       const userEmail = session.state.email || null;
       const response = await processWithGemini(from, msg.text.body, session.history, userEmail);
       await sendWhatsAppMessage(from, response.reply);
 
-      // Store user email if found in response
       if (response.reply.includes('@') && !session.state.email) {
         const emailMatch = response.reply.match(/[\w.-]+@[\w.-]+\.\w+/);
         if (emailMatch) {
@@ -390,13 +369,11 @@ const handleWebhook = async (req, res) => {
       await session.save();
     }
     else if (msg.type === 'interactive' && msg.interactive?.type === 'list_reply') {
-      console.log(`🎯 User selected service: ${msg.interactive.list_reply.id}`);
       
       const services = await getActiveServices();
       const service = services.find(s => s.id === msg.interactive.list_reply.id);
       
       if (service) {
-        console.log(`✅ Service found: ${service.name}`);
         const response = await processWithGemini(from, `I'm interested in ${service.name}. I'd like to learn more about this service.`, session.history);
         await sendWhatsAppMessage(from, response.reply);
         
@@ -405,7 +382,6 @@ const handleWebhook = async (req, res) => {
         session.history.push({ role: 'model', content: response.reply, timestamp: new Date() });
         await session.save();
       } else {
-        console.log(`⚠️ Service not found: ${msg.interactive.list_reply.id}`);
         await sendWhatsAppMessage(from, "Sorry, that service is no longer available. Let me show you our current services.");
         await sendServiceList(from);
       }
@@ -413,21 +389,16 @@ const handleWebhook = async (req, res) => {
 
   } catch (err) {
     console.error('❌ Webhook error:', err);
+    throw err;
   }
 };
 
-// Cleanup old sessions (keep 24 hours)
 setInterval(async () => {
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
   try {
     const result = await UserSession.deleteMany({ lastAccess: { $lt: cutoff } });
-    
-    // Clean in-memory sessions
+
     whatsappSessions.clear();
-    
-    if (result.deletedCount > 0) {
-      console.log(`🧹 Cleaned up ${result.deletedCount} old sessions`);
-    }
   } catch (err) {
     console.error('❌ Cleanup error:', err);
   }

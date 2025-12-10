@@ -19,7 +19,6 @@ app.use(cors({ origin: '*' }));
 app.use(morgan('dev'));
 
 connectDB().then(async () => {
-  console.log('✅ Database connected');
   await initializeServices();
 });
 
@@ -120,8 +119,7 @@ app.post('/calendar-data', async (req, res) => {
 
 app.post('/api/sync-services', async (req, res) => {
   try {
-    const spreadsheetId = req.body.spreadsheetId || process.env.GOOGLE_SHEET_ID;
-    
+    const spreadsheetId = req?.body?.spreadsheetId || process.env.GOOGLE_SHEET_ID;
     if (!spreadsheetId) {
       return res.status(400).json({ 
         success: false, 
@@ -146,13 +144,6 @@ app.post('/api/sync-services', async (req, res) => {
     }
 
     const result = await syncServicesFromSheet(spreadsheetId, token);
-    
-    if (result.success) {
-      console.log('✅ Sync completed successfully');
-    } else {
-      console.log('❌ Sync failed:', result.message);
-    }
-    
     res.json(result);
 
   } catch (error) {
@@ -194,8 +185,7 @@ app.post('/api/webhook/sheets-sync', async (req, res) => {
 
     const token = employee.getDecryptedToken();
     const result = await syncServicesFromSheet(sheetId, token);
-    
-    console.log('✅ Auto-sync completed:', result.message);
+
     res.json(result);
 
   } catch (error) {

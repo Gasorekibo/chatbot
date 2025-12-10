@@ -37,10 +37,6 @@ async function syncServicesFromSheet(spreadsheetId, refreshToken) {
         active: row[4]?.toLowerCase() === 'true' || row[4] === '1' || row[4]?.toLowerCase() === 'yes'
       }))
       .filter(s => s.id && s.name); 
-
-    console.log(`📊 Syncing ${services.length} services from Google Sheet...`);
-
-    // Update or create content document
     const content = await Content.findOneAndUpdate(
       {},
       { 
@@ -49,9 +45,6 @@ async function syncServicesFromSheet(spreadsheetId, refreshToken) {
       },
       { upsert: true, new: true }
     );
-
-    console.log('✅ Services synced successfully to database');
-    console.log('Services:', services.map(s => `${s.id}: ${s.name} (${s.active ? 'active' : 'inactive'})`).join(', '));
 
     return { 
       success: true, 
@@ -80,14 +73,10 @@ async function getActiveServices() {
     const content = await Content.findOne();
     
     if (content && content.services && content.services.length > 0) {
-      // Filter only active services
+
       const activeServices = content.services.filter(s => s.active !== false);
-      console.log(`📋 Retrieved ${activeServices.length} active services from database`);
       return activeServices;
     }
-
-    console.log('⚠️ No services in database, using default services');
-    // Fallback to default services
     return getDefaultServices();
 
   } catch (error) {
@@ -106,7 +95,7 @@ async function getAllServices() {
     const content = await Content.findOne();
     
     if (content && content.services && content.services.length > 0) {
-      console.log(`📋 Retrieved ${content.services.length} total services from database`);
+
       return content.services;
     }
 
@@ -173,9 +162,6 @@ async function initializeServices() {
         },
         { upsert: true, new: true }
       );
-      
-    } else {
-      console.log(`✅ Database already has ${content.services.length} services`);
     }
   } catch (error) {
     console.error('❌ Error initializing services:', error);
