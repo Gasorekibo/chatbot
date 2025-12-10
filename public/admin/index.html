@@ -755,8 +755,8 @@
         const result = await res.json();
 
         if (res.ok) {
-          showToast(`Reminder sent to ${result.sent || result.count || 'many'} users`, 'success');
-          fetchData(); // optional refresh
+          showToast(`Message sent to ${result.sent || result.count || 'many'} users`, 'success');
+          fetchData();
         } else {
           showToast(result.error || 'Failed to send message', 'error');
         }
