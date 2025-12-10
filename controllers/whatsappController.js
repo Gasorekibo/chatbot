@@ -222,7 +222,7 @@ async function processWithGemini(phoneNumber, message, history = [], userEmail =
         const start = new Date(matchingSlot.isoStart);
         const end = new Date(matchingSlot.isoEnd);
 
-        const res = await fetch('https://catherin-postsaccular-rosann.ngrok-free.dev/api/chat/book', {
+        const res = await fetch('http://localhost:3000/api/chat/book', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
