@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 
 const UserSessionSchema = new mongoose.Schema({
+  name: String,
   phone: { type: String, required: true, unique: true },
   history: [{
     role: { type: String, enum: ['user', 'model'], required: true },
