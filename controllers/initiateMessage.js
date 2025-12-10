@@ -19,7 +19,7 @@ async function initiateWhatsappMessage(to, templateName, params = []) {
           language: { code: 'en' },
           components: [
             {
-              type: 'body',
+              type: 'header',
               parameters: params.map(text => ({ type: 'text', text }))
             }
           ]
