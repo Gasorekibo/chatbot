@@ -1,7 +1,8 @@
 const { google } = require('googleapis');
 const Employee = require('../models/Employees');
 const { OAuth2Client: GoogleOAuth2Client } = require('google-auth-library');
-
+const dotenv = require('dotenv');
+dotenv.config();
 const bookMeetingHandler = async (req, res) => {
   const { 
     title: meetingTitle, 
@@ -11,7 +12,7 @@ const bookMeetingHandler = async (req, res) => {
     attendeeEmail
   } = req.body;
   
-  const employeeEmail = 'mugwanezagasore073@gmail.com';
+  const employeeEmail = process.env.EMPLOYEE_EMAIL;
 
   if (!meetingTitle || !startTime || !endTime) {
     return res.status(400).json({ 

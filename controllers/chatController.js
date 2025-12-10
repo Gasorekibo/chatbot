@@ -2,9 +2,11 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Employee = require('../models/Employees');
 const getCalendarData = require('../utils/getCalendarData');
 const ServiceRequest = require('../models/ServiceRequest');
+const dotenv = require('dotenv');
+dotenv.config();
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const EMPLOYEE_EMAIL = 'mugwanezagasore073@gmail.com';
+const EMPLOYEE_EMAIL = process.env.EMPLOYEE_EMAIL;
 
 const systemInstruction = `
 You are a warm, professional AI assistant for Moyo Tech Solutions. Your role is to help clients book consultations and gather requirements for services.
