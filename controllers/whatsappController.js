@@ -19,7 +19,7 @@ SERVICES WE OFFER:
 {{SERVICES_LIST}}
 
 IMPORTANT BOOKING RULES:
-- The current date is December 9, 2025
+- The current date is {{CURRENT_DATE}} 
 - ONLY use dates from the AVAILABLE_SLOTS list below
 - When user requests a specific day/time, find the CLOSEST MATCH in AVAILABLE_SLOTS
 - NEVER invent dates - only use what's in AVAILABLE_SLOTS
@@ -176,9 +176,17 @@ async function processWithGemini(phoneNumber, message, history = [], userEmail =
       `${i + 1}. ${s.dayName}, ${s.date} at ${s.time} (ISO: ${s.isoStart})`
     ).join('\n');
 
+    const currentDate = new Date().toLocaleString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      timeZone: 'Africa/Kigali'
+    });
     let prompt = systemInstruction
       .replace('{{SERVICES_LIST}}', servicesList)
-      .replace('{{AVAILABLE_SLOTS}}', slotDetails);
+      .replace('{{AVAILABLE_SLOTS}}', slotDetails)
+      .replace('{{CURRENT_DATE}}', currentDate); 
 
     let chat = whatsappSessions.get(phoneNumber);
     if (!chat) {
