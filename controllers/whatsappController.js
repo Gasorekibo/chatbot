@@ -40,6 +40,9 @@ AVAILABLE CONSULTATION SLOTS (THESE ARE THE ONLY VALID SLOTS):
 
 OUTPUT FORMATS (exact, no extra text):
 
+When user wants to see services list (asking what services available, what you offer, etc):
+===SHOW_SERVICES===
+
 When user confirms a booking with a specific time that EXISTS in AVAILABLE_SLOTS:
 ===BOOK===
 {"service":"Service Name","title":"Service Consultation - NAME","start":"2025-12-10T10:00:00+02:00","end":"2025-12-10T11:00:00+02:00","attendeeEmail":"user@example.com","name":"John Doe","phone":"+250...","company":"ABC Ltd","details":"User requirements"}
@@ -48,6 +51,25 @@ When saving service request:
 ===SAVE_REQUEST===
 {"service":"Service Name","name":"Jane","email":"jane@company.com","details":"Detailed requirements","timeline":"3 months","budget":"$50k+"}
 `;
+
+const intentDetectionPrompt = `
+You are an intent classifier. Analyze if the user wants to see the services list.
+
+User wants to see services if they're asking about:
+- What services/solutions are available
+- What the company offers/provides
+- Capabilities and offerings
+- Service options
+- What help is available
+- Exploring services
+
+Respond ONLY with:
+"SHOW_SERVICES" if user wants to see services
+"CONTINUE" if user wants to continue conversation
+
+User message: "{{USER_MESSAGE}}"
+
+Your response:`;
 
 async function sendWhatsAppMessage(to, body) {
   const url = `https://graph.facebook.com/v22.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
@@ -132,6 +154,23 @@ async function sendServiceList(to) {
   }
 }
 
+// ==================== AI INTENT DETECTION ====================
+
+async function detectIntentWithAI(message) {
+  try {
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const prompt = intentDetectionPrompt.replace('{{USER_MESSAGE}}', message);
+    
+    const result = await model.generateContent(prompt);
+    const response = result.response.text().trim().toUpperCase();
+    
+    return response.includes('SHOW_SERVICES');
+  } catch (err) {
+    console.error('❌ Intent detection error:', err);
+    return false;
+  }
+}
+
 // ==================== GEMINI CHAT PROCESSOR ====================
 
 async function processWithGemini(phoneNumber, message, history = [], userEmail = null) {
@@ -142,15 +181,18 @@ async function processWithGemini(phoneNumber, message, history = [], userEmail =
     const token = employee.getDecryptedToken();
     const calendar = await getCalendarData(EMPLOYEE_EMAIL, token);
 
-    // Format slots for Gemini with full details
+    const now = new Date();
+    const kigaliTime = new Date(now.toLocaleString('en-US', { timeZone: 'Africa/Kigali' }));
+
     const freeSlots = calendar.freeSlots.map(s => {
       const start = new Date(s.start);
       const end = new Date(s.end);
+      const slotStart = start > kigaliTime ? start : kigaliTime;
       
       return {
-        isoStart: start.toISOString(),
+        isoStart: slotStart.toISOString(),
         isoEnd: end.toISOString(),
-        display: start.toLocaleString('en-US', { 
+        display: slotStart.toLocaleString('en-US', { 
           weekday: 'long',
           year: 'numeric',
           month: 'long', 
@@ -159,9 +201,9 @@ async function processWithGemini(phoneNumber, message, history = [], userEmail =
           minute: '2-digit',
           timeZone: 'Africa/Kigali' 
         }),
-        dayName: start.toLocaleString('en-US', { weekday: 'long', timeZone: 'Africa/Kigali' }),
-        date: start.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Africa/Kigali' }),
-        time: start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'Africa/Kigali' })
+        dayName: slotStart.toLocaleString('en-US', { weekday: 'long', timeZone: 'Africa/Kigali' }),
+        date: slotStart.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Africa/Kigali' }),
+        time: `${slotStart.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'Africa/Kigali' })} - ${end.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'Africa/Kigali' })}`
       };
     });
 
@@ -170,8 +212,6 @@ async function processWithGemini(phoneNumber, message, history = [], userEmail =
       `• ${s.name}${s.details ? ' - ' + s.details : ''}`
     ).join('\n');
 
-
-    // Create detailed slot list for Gemini
     const slotDetails = freeSlots.map((s, i) => 
       `${i + 1}. ${s.dayName}, ${s.date} at ${s.time} (ISO: ${s.isoStart})`
     ).join('\n');
@@ -181,8 +221,11 @@ async function processWithGemini(phoneNumber, message, history = [], userEmail =
       year: 'numeric',
       month: 'long',
       day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
       timeZone: 'Africa/Kigali'
     });
+    
     let prompt = systemInstruction
       .replace('{{SERVICES_LIST}}', servicesList)
       .replace('{{AVAILABLE_SLOTS}}', slotDetails)
@@ -203,28 +246,33 @@ async function processWithGemini(phoneNumber, message, history = [], userEmail =
     const result = await chat.sendMessage(message);
     const text = result.response.text();
 
+    const showServicesMatch = text.match(/===SHOW_SERVICES===/);
     const bookMatch = text.match(/===BOOK===\s*(\{.*?\})/s);
     const saveMatch = text.match(/===SAVE_REQUEST===\s*(\{.*?\})/s);
 
     let reply = text
-      .replace(/===BOOK===\s*\{.*?\}|===SAVE_REQUEST===\s*\{.*?\}|```json|```/gi, '')
+      .replace(/===SHOW_SERVICES===|===BOOK===\s*\{.*?\}|===SAVE_REQUEST===\s*\{.*?\}|```json|```/gi, '')
       .trim() || "I'm here to help! How can I assist you today?";
 
-    // Handle booking
+    
+    if (showServicesMatch) {
+      return { reply: null, showServices: true, showSlots: false, freeSlots };
+    }
+
+   
     if (bookMatch) {
       try {
         const data = JSON.parse(bookMatch[1]);
         const requestedStart = new Date(data.start);
-        
-        // Verify the slot exists in our available slots
+
         const matchingSlot = freeSlots.find(slot => {
           const slotStart = new Date(slot.isoStart);
-          return Math.abs(slotStart - requestedStart) < 60000; // Within 1 minute
+          return Math.abs(slotStart - requestedStart) < 60000; 
         });
 
         if (!matchingSlot) {
           reply = "I apologize, but that specific time slot is not available. Let me show you the currently available times:";
-          return { reply, showSlots: true, freeSlots };
+          return { reply, showServices: false, showSlots: true, freeSlots };
         }
 
         const start = new Date(matchingSlot.isoStart);
@@ -255,16 +303,15 @@ async function processWithGemini(phoneNumber, message, history = [], userEmail =
           })} (Africa/Kigali time)\n\n📧 *Check your email* (${userEmail || data.attendeeEmail}) for the Google Meet link and calendar invite.\n\n🎉 Thank you for choosing Moyo Tech Solutions! We look forward to speaking with you.`;
         } else {
           reply = "⚠️ That slot was just taken. Let me show you updated available times:";
-          return { reply, showSlots: true, freeSlots };
+          return { reply, showServices: false, showSlots: true, freeSlots };
         }
       } catch (e) {
         console.error('❌ Booking failed:', e);
         reply = "❌ Sorry, there was an issue with the booking. Let me show you the available slots again:";
-        return { reply, showSlots: true, freeSlots };
+        return { reply, showServices: false, showSlots: true, freeSlots };
       }
     }
 
-    // Save service request
     if (saveMatch) {
       try {
         const data = JSON.parse(saveMatch[1]);
@@ -278,19 +325,21 @@ async function processWithGemini(phoneNumber, message, history = [], userEmail =
       }
     }
 
-    return { reply, showSlots: false, freeSlots };
+    return { reply, showServices: false, showSlots: false, freeSlots };
 
   } catch (err) {
     console.error("❌ Gemini error:", err);
     if (err.status === 429) {
       return { 
         reply: "🔄 We're experiencing high demand right now. Please try again in a moment or type 'menu' to see our services.", 
+        showServices: false,
         showSlots: false, 
         freeSlots: [] 
       };
     }
     return { 
       reply: "I'm having trouble connecting right now. Please try again in a moment!", 
+      showServices: false,
       showSlots: false, 
       freeSlots: [] 
     };
@@ -305,7 +354,6 @@ const verifyWebhook = (req, res) => {
   const challenge = req.query['hub.challenge'];
 
   if (mode && token === process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN) {
-
     res.send(challenge);
   } else {
     res.sendStatus(403);
@@ -340,7 +388,7 @@ const handleWebhook = async (req, res) => {
       });
     }
 
-    // Update last access
+    
     session.lastAccess = new Date();
 
     if (msg.type === 'text') {
@@ -352,7 +400,8 @@ const handleWebhook = async (req, res) => {
         await sendServiceList(from);
         return;
       }
-      if (['hi', 'hello', 'hey', 'start', 'menu', 'services', 'restart'].includes(text)) {
+      
+      if (['menu', 'restart'].includes(text)) {
         await sendServiceList(from);
         session.history = [];
         session.state = { selectedService: null };
@@ -363,18 +412,30 @@ const handleWebhook = async (req, res) => {
 
       const userEmail = session.state.email || null;
       const response = await processWithGemini(from, msg.text.body, session.history, userEmail);
-      await sendWhatsAppMessage(from, response.reply);
-
-      if (response.reply.includes('@') && !session.state.email) {
-        const emailMatch = response.reply.match(/[\w.-]+@[\w.-]+\.\w+/);
-        if (emailMatch) {
-          session.state.email = emailMatch[0];
-        }
+      if (response.showServices) {
+        await sendServiceList(from);
+        session.history.push({ role: 'user', content: msg.text.body, timestamp: new Date() });
+        session.history.push({ role: 'model', content: 'Service list shown', timestamp: new Date() });
+        await session.save();
+        return;
       }
 
-      session.history.push({ role: 'user', content: msg.text.body, timestamp: new Date() });
-      session.history.push({ role: 'model', content: response.reply, timestamp: new Date() });
-      await session.save();
+      // Send AI response
+      if (response.reply) {
+        await sendWhatsAppMessage(from, response.reply);
+
+        // Extract email if present
+        if (response.reply.includes('@') && !session.state.email) {
+          const emailMatch = response.reply.match(/[\w.-]+@[\w.-]+\.\w+/);
+          if (emailMatch) {
+            session.state.email = emailMatch[0];
+          }
+        }
+
+        session.history.push({ role: 'user', content: msg.text.body, timestamp: new Date() });
+        session.history.push({ role: 'model', content: response.reply, timestamp: new Date() });
+        await session.save();
+      }
     }
     else if (msg.type === 'interactive' && msg.interactive?.type === 'list_reply') {
       
@@ -383,11 +444,14 @@ const handleWebhook = async (req, res) => {
       
       if (service) {
         const response = await processWithGemini(from, `I'm interested in ${service.name}. I'd like to learn more about this service.`, session.history);
-        await sendWhatsAppMessage(from, response.reply);
+        
+        if (response.reply) {
+          await sendWhatsAppMessage(from, response.reply);
+        }
         
         session.state.selectedService = service.id;
         session.history.push({ role: 'user', content: `Selected: ${service.name}`, timestamp: new Date() });
-        session.history.push({ role: 'model', content: response.reply, timestamp: new Date() });
+        session.history.push({ role: 'model', content: response.reply || 'Service selected', timestamp: new Date() });
         await session.save();
       } else {
         await sendWhatsAppMessage(from, "Sorry, that service is no longer available. Let me show you our current services.");
@@ -405,11 +469,10 @@ setInterval(async () => {
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
   try {
     const result = await UserSession.deleteMany({ lastAccess: { $lt: cutoff } });
-
     whatsappSessions.clear();
   } catch (err) {
     console.error('❌ Cleanup error:', err);
   }
-}, 60 * 60 * 1000); // Every hour
+}, 60 * 60 * 1000); 
 
 module.exports = { verifyWebhook, handleWebhook };
