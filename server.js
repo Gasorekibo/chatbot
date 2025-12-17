@@ -97,7 +97,67 @@ app.get('/employees', async (req, res) => {
   const employees = await Employee.find({}, 'name email');
   res.json(employees);
 });
+app.post('/webhook/flutterwave', express.raw({ type: 'application/json' }), async (req, res) => {
+  const secretHash = process.env.FLW_WEBHOOK_SECRET;
+  const signature = req.headers['verif-hash'];
 
+  if (!signature || signature !== secretHash) {
+    return res.status(401).end();
+  }
+
+  const payload = req.body;
+
+  if (payload.event === 'charge.completed' && payload.data.status === 'successful') {
+    const meta = payload.data.meta;
+    if (!meta?.booking_details) return res.status(200).end();
+
+    try {
+      const booking = JSON.parse(meta.booking_details);
+      const phone = meta.phone;
+
+      const session = await UserSession.findOne({ phone });
+      if (!session || !session.state.pendingBooking) return res.status(200).end();
+
+      const start = new Date(booking.slotStart);
+      const end = new Date(booking.slotEnd);
+
+      const bookRes = await fetch('http://localhost:3000/api/chat/book', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: booking.title,
+          start: booking.slotStart,
+          end: booking.slotEnd,
+          attendeeEmail: booking.email,
+          description: `Service: ${booking.service}\nPhone: ${phone}\nDeposit Paid: ${payload.data.amount} ${payload.data.currency}`
+        })
+      });
+
+      const result = await bookRes.json();
+
+      let message;
+      if (result.success) {
+        message = `✅ *Booking Confirmed!*\n\n` +
+                  `Thank you! Your deposit of ${payload.data.amount} ${payload.data.currency} was successful.\n\n` +
+                  `📅 *Date & Time:* ${start.toLocaleString('en-US', { timeZone: 'Africa/Kigali', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })}\n\n` +
+                  `Check your email (${booking.email}) for the calendar invite and Google Meet link.\n\n` +
+                  `We can't wait to help you grow! 🚀`;
+      } else {
+        message = `Payment received, but the slot was just taken. We'll refund you and help reschedule.`;
+      }
+
+      await sendWhatsAppMessage(phone, message);
+
+      session.state.pendingBooking = null;
+      await session.save();
+
+    } catch (err) {
+      console.error('Webhook error:', err);
+    }
+  }
+
+  res.status(200).end();
+});
 app.post('/calendar-data', async (req, res) => {
   const { employeeName } = req.body;
   if (!employeeName) return res.status(400).json({ error: 'no employee name' });
