@@ -719,7 +719,7 @@ async function processWithGemini(phoneNumber, message, history = [], userEmail =
     if (showServicesMatch) {
       return { reply: null, showServices: true, showSlots: false, freeSlots };
     }
-
+console.log('Payment Match:', paymentMatch);
     // === PAYMENT INITIATION (Main Fix Here) ===
     if (paymentMatch) {
       try {
@@ -738,7 +738,6 @@ async function processWithGemini(phoneNumber, message, history = [], userEmail =
 
         const tx_ref = `moyo-deposit-${phoneNumber.replace(/\+/g, '')}-${Date.now()}`;
 
-        // Direct Flutterwave API call to generate payment link
         const paymentApiResponse = await fetch('https://api.flutterwave.com/v3/payments', {
           method: 'POST',
           headers: {
@@ -749,7 +748,7 @@ async function processWithGemini(phoneNumber, message, history = [], userEmail =
             tx_ref,
             amount: parseInt(process.env.DEPOSIT_AMOUNT || 5000),
             currency: process.env.CURRENCY || "RWF",
-            redirect_url: "", // No redirect needed for WhatsApp
+            redirect_url: "https://catherin-postsaccular-rosann.ngrok-free.dev/payment-success",
             customer: {
               email: data.email || "customer@example.com",
               phone_number: phoneNumber.replace('+', ''),
@@ -781,19 +780,6 @@ async function processWithGemini(phoneNumber, message, history = [], userEmail =
                   `👉 *Tap to pay securely (Mobile Money or Card):*\n${paymentLink}\n\n` +
                   `After payment, your booking will be automatically confirmed and you'll receive a Google Meet link via email.\n\n` +
                   `Thank you for choosing Moyo Tech Solutions! 🚀`;
-
-          // Save pending booking
-          await UserSession.findOneAndUpdate(
-            { phone: phoneNumber },
-            { $set: { "state.pendingBooking": { 
-              ...data, 
-              tx_ref, 
-              slotStart: matchingSlot.isoStart, 
-              slotEnd: matchingSlot.isoEnd, 
-              status: "awaiting_payment" 
-            } } }
-          );
-
         } else {
           console.error('Flutterwave error:', paymentResponse);
           reply = "Sorry, I couldn't generate the payment link right now. Please try again in a moment.";
@@ -807,7 +793,6 @@ async function processWithGemini(phoneNumber, message, history = [], userEmail =
       }
     }
 
-    // === SAVE REQUEST ===
     if (saveMatch) {
       try {
         const data = JSON.parse(saveMatch[1]);
@@ -826,12 +811,21 @@ async function processWithGemini(phoneNumber, message, history = [], userEmail =
 
   } catch (err) {
     console.error("❌ Gemini error:", err);
+    if (err.status === 429) {
+      return { 
+        reply: "🔄 We're experiencing high demand right now. Please try again in a moment or type 'menu' to see our services.",
+        showServices: false,
+        showSlots: false, 
+        freeSlots: [] 
+      };
+    }else {
     return { 
       reply: "I'm having trouble connecting right now. Please try again in a moment!", 
       showServices: false,
       showSlots: false, 
       freeSlots: [] 
     };
+  }
   }
 }
 
@@ -957,4 +951,4 @@ setInterval(async () => {
   }
 }, 60 * 60 * 1000);
 
-module.exports = { verifyWebhook, handleWebhook };
+module.exports = { verifyWebhook, handleWebhook, sendWhatsAppMessage };

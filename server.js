@@ -4,6 +4,8 @@ const cors = require('cors');
 const morgan = require('morgan');
 const connectDB = require('./helpers/config');
 const chatRoutes = require('./routes/chat');
+const UserSession = require('./models/UserSession');
+const { sendWhatsAppMessage } = require('./controllers/whatsappController');
 const bookMeetingHandler = require('./controllers/bookMeeting');
 const Employee = require('./models/Employees');
 const { oauth2Client } = require('./utils/auth');
@@ -97,66 +99,180 @@ app.get('/employees', async (req, res) => {
   const employees = await Employee.find({}, 'name email');
   res.json(employees);
 });
-app.post('/webhook/flutterwave', express.raw({ type: 'application/json' }), async (req, res) => {
+app.post('/webhook/flutterwave', express.json(), async (req, res) => {
   const secretHash = process.env.FLW_WEBHOOK_SECRET;
   const signature = req.headers['verif-hash'];
 
   if (!signature || signature !== secretHash) {
+
     return res.status(401).end();
   }
 
-  const payload = req.body;
 
-  if (payload.event === 'charge.completed' && payload.data.status === 'successful') {
-    const meta = payload.data.meta;
-    if (!meta?.booking_details) return res.status(200).end();
+  try {
+    const payload = req.body;
 
-    try {
+    if (payload.event === 'charge.completed' && payload.data?.status === 'successful') {
+      const meta = payload.meta_data;
+      
+
+      if (!meta?.booking_details) {
+        return res.status(200).end();
+      }
+
       const booking = JSON.parse(meta.booking_details);
-      const phone = meta.phone;
+      let phone = meta.phone || booking.phone;;
+      const normalizedPhone = phone.toString().replace(/^\+/, '');
+      const session = await UserSession.findOne({ phone: normalizedPhone });
+      
+      if (!session) {
+        try {
+          const message = `✅ *Payment Received!*\n\n` +
+                        `Your deposit of ${payload.data.amount} ${payload.data.currency} was successful.\n\n` +
+                        `We're processing your booking now. You'll receive a confirmation email at ${booking.email} shortly.\n\n` +
+                        `Thank you for choosing Moyo Tech Solutions! 🚀`;
+          
+          await sendWhatsAppMessage(phone, message);
+        } catch (msgErr) {
+          console.error('❌ Could not send message:', msgErr);
+        }
+        
+        return res.status(200).end();
+      }
 
-      const session = await UserSession.findOne({ phone });
-      if (!session || !session.state.pendingBooking) return res.status(200).end();
-
-      const start = new Date(booking.slotStart);
-      const end = new Date(booking.slotEnd);
-
+      const startISO = booking.start;
+      const endISO = booking.end;
+      // Create calendar booking
       const bookRes = await fetch('http://localhost:3000/api/chat/book', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title: booking.title,
-          start: booking.slotStart,
-          end: booking.slotEnd,
+          title: booking.title || `Consultation - ${booking.name}`,
+          start: startISO,  
+          end: endISO,  
           attendeeEmail: booking.email,
-          description: `Service: ${booking.service}\nPhone: ${phone}\nDeposit Paid: ${payload.data.amount} ${payload.data.currency}`
+          description: `Service: ${booking.service}\n` +
+                      `Phone: ${phone}\n` +
+                      `Company: ${booking.company || 'N/A'}\n` +
+                      `Details: ${booking.details || 'N/A'}\n` +
+                      `Deposit Paid: ${payload.data.amount} ${payload.data.currency}\n` +
+                      `Transaction Ref: ${booking.tx_ref}\n` +
+                      `Payment Method: ${payload.data.payment_type}`
         })
       });
 
       const result = await bookRes.json();
+      const start = new Date(startISO);
+      const displayDate = start.toLocaleString('en-US', { 
+        timeZone: 'Africa/Kigali', 
+        weekday: 'long', 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric', 
+        hour: 'numeric', 
+        minute: '2-digit' 
+      });
 
       let message;
       if (result.success) {
         message = `✅ *Booking Confirmed!*\n\n` +
-                  `Thank you! Your deposit of ${payload.data.amount} ${payload.data.currency} was successful.\n\n` +
-                  `📅 *Date & Time:* ${start.toLocaleString('en-US', { timeZone: 'Africa/Kigali', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })}\n\n` +
-                  `Check your email (${booking.email}) for the calendar invite and Google Meet link.\n\n` +
-                  `We can't wait to help you grow! 🚀`;
+                  `Thank you ${booking.name}! Your deposit of *${payload.data.amount} ${payload.data.currency}* was successful.\n\n` +
+                  `📅 *Consultation Details:*\n` +
+                  `• Service: ${booking.service}\n` +
+                  `• Date & Time: ${displayDate}\n` +
+                  `• Duration: 1 hour\n\n` +
+                  `📧 Check your email (*${booking.email}*) for:\n` +
+                  `✓ Calendar invite\n` +
+                  `✓ Google Meet link\n` +
+                  `✓ Pre-consultation form\n\n` +
+                  `We can't wait to help you grow! 🚀\n\n` +
+                  `_Type 'menu' anytime to see our services again._`;
       } else {
-        message = `Payment received, but the slot was just taken. We'll refund you and help reschedule.`;
+        message = `⚠️ Payment Received\n\n` +
+                  `Your deposit of ${payload.data.amount} ${payload.data.currency} was successful, but the time slot was just taken.\n\n` +
+                  `Don't worry! Our team will:\n` +
+                  `✓ Process a full refund within 24 hours\n` +
+                  `✓ Contact you at ${booking.email} to reschedule\n\n` +
+                  `We apologize for the inconvenience!`;
       }
 
       await sendWhatsAppMessage(phone, message);
 
-      session.state.pendingBooking = null;
-      await session.save();
+    } else {
+      // Payment not successful
+      const failedPaymentMessage = `⚠️ *Payment Not Successful*\n\n` +
+                                   `We noticed that your recent payment did not go through successfully.\n\n` +
+                                   `Please try again or contact support if the issue persists.\n\n` +
+                                   `Thank you!`;
+      await sendWhatsAppMessage(meta.phone || 'Client', failedPaymentMessage);
 
-    } catch (err) {
-      console.error('Webhook error:', err);
     }
-  }
 
-  res.status(200).end();
+    res.status(200).json({ success: true });
+
+  } catch (err) {
+    res.status(200).json({ success: false, error: err.message });
+  }
+});
+app.get('/payment-success', (req, res) => {
+  res.send(`
+    <html>
+      <head>
+        <title>Payment Successful</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            text-align: center;
+            background: #f5f5f5;
+          }
+          .container {
+            background: white;
+            padding: 40px 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-top: 50px;
+          }
+          .success-icon {
+            font-size: 64px;
+            color: #4CAF50;
+            margin-bottom: 20px;
+          }
+          h1 {
+            color: #333;
+            margin-bottom: 10px;
+          }
+          p {
+            color: #666;
+            line-height: 1.6;
+          }
+          .highlight {
+            background: #e8f5e9;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="success-icon">✅</div>
+          <h1>Payment Successful!</h1>
+          <p>Thank you for your deposit.</p>
+          <div class="highlight">
+            <p><strong>Your booking is being confirmed...</strong></p>
+            <p>You'll receive a WhatsApp message with your booking details and Google Meet link shortly.</p>
+          </div>
+          <p style="margin-top: 30px; font-size: 14px; color: #999;">
+            You can close this page now.
+          </p>
+        </div>
+      </body>
+    </html>
+  `);
 });
 app.post('/calendar-data', async (req, res) => {
   const { employeeName } = req.body;
