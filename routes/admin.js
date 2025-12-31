@@ -7,9 +7,16 @@ const ServiceRequest = require('../models/ServiceRequest');
 const Content = require('../models/Content');
 
 router.post('/template', async (req, res) => {
+  // Get contact numbers from ZOHO CRM
+  const contacts = await fetch('http://localhost:3000/api/zoho/contacts')
+    .then(response => response.json())
+    .then(data => data.contacts)
+    .catch(error => {
+      console.error('Error fetching contacts from ZOHO CRM:', error);
+      return [];
+    });
 
-  const userSession = await UserSession.find()
-  const to = userSession.map(session => session.phone);
+  const to = contacts.map(contact => contact.phone);
   const templateName = req.body.templateName
   if (!to?.length || !templateName) {
     return res.status(400).json({ error: "Missing 'to' or 'templateName'" });
@@ -17,7 +24,7 @@ router.post('/template', async (req, res) => {
   try {
 
    await to.forEach(async (phoneNumber) => {
-    const username = await userSession.filter(session => session.phone === phoneNumber).map(session => session.name || "Customer");
+    const username = [contacts.find(contact => contact.phone === phoneNumber)?.fullName] || ['Customer'];
     const params = username;
       await initiateWhatsappMessage(phoneNumber, templateName, params);
     });
