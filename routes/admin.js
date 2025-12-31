@@ -10,7 +10,7 @@ router.post('/template', async (req, res) => {
 
   const userSession = await UserSession.find()
   const to = userSession.map(session => session.phone);
-const templateName = req.body.templateName
+  const templateName = req.body.templateName
   if (!to?.length || !templateName) {
     return res.status(400).json({ error: "Missing 'to' or 'templateName'" });
   }
@@ -54,3 +54,4 @@ router.get('/services', async(req, res)=> {
   }
 })
 module.exports = router;
+
