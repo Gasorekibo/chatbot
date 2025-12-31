@@ -2,7 +2,6 @@
 const dotenv = require('dotenv');
 dotenv.config();
 
-// Configuration
 const ZOHO_CONFIG = {
   clientId: process.env.ZOHO_CLIENT_ID,
   clientSecret: process.env.ZOHO_CLIENT_SECRET,
@@ -11,19 +10,13 @@ const ZOHO_CONFIG = {
   apiUrl: 'https://www.zohoapis.com/crm/v3'
 };
 
-// In-memory token cache
 let tokenCache = {
   accessToken: null,
   expiresAt: null
 };
 
-/**
- * Refresh the Zoho access token using refresh token
- */
 async function refreshZohoAccessToken() {
   try {
-    console.log('🔄 Refreshing Zoho access token...');
-    
     const response = await fetch(
       `${ZOHO_CONFIG.accountsUrl}/oauth/v2/token`,
       {
@@ -48,8 +41,7 @@ async function refreshZohoAccessToken() {
 
     // Cache the new token
     tokenCache.accessToken = data.access_token;
-    tokenCache.expiresAt = Date.now() + (data.expires_in * 1000) - 60000; // 1 min buffer
-    
+    tokenCache.expiresAt = Date.now() + (data.expires_in * 1000) - 60000; 
     console.log('✅ Zoho access token refreshed successfully');
     return data.access_token;
   } catch (error) {
@@ -58,11 +50,7 @@ async function refreshZohoAccessToken() {
   }
 }
 
-/**
- * Get a valid access token (refresh if expired)
- */
 async function getValidZohoAccessToken() {
-  // Check if we have required credentials
   if (!ZOHO_CONFIG.refreshToken) {
     throw new Error(
       'Zoho refresh token not found. Please set ZOHO_REFRESH_TOKEN in .env. ' +
@@ -75,8 +63,6 @@ async function getValidZohoAccessToken() {
       'Zoho credentials missing. Please set ZOHO_CLIENT_ID and ZOHO_CLIENT_SECRET in .env'
     );
   }
-
-  // Check if token is expired or will expire soon
   if (!tokenCache.accessToken || Date.now() >= tokenCache.expiresAt) {
     return await refreshZohoAccessToken();
   }
@@ -144,7 +130,7 @@ async function searchZohoContactByPhone(phoneNumber) {
       }
     });
 
-    // Handle 204 No Content (no results found)
+
     if (response.status === 204) {
       return [];
     }
