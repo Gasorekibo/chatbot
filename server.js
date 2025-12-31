@@ -633,7 +633,5 @@ app.post('/api/webhook/sheets-sync', async (req, res) => {
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
-  console.log(`📝 Zoho OAuth: http://localhost:${PORT}/auth/zoho`);
-  console.log(`📞 Zoho Contacts: http://localhost:${PORT}/api/zoho/contacts`);
+  console.log(`🚀 Server Started Successfully`);
 });
