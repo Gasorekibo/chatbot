@@ -74,17 +74,12 @@ router.post('/template', async (req, res) => {
     if (!templateName) {
       return res.status(400).json({ error: "Missing 'templateName'" });
     }
-
-    console.log(`📤 Fetching contacts from Zoho CRM for template: ${templateName}`);
-
-    // Fetch contacts from Zoho CRM
     let contacts;
     if (Object.keys(filters).length > 0) {
       contacts = await zohoClient.getFilteredContacts(filters);
     } else {
       contacts = await zohoClient.getAllContacts({ activeOnly: true });
     }
-
     if (contacts.length === 0) {
       return res.json({
         success: true,
@@ -94,8 +89,6 @@ router.post('/template', async (req, res) => {
         template: templateName,
       });
     }
-
-    console.log(`📋 Found ${contacts.length} contacts from Zoho CRM`);
 
     const sentTo = [];
     const failed = [];

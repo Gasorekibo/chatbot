@@ -9,7 +9,9 @@ const Employee = require('./models/Employees');
 const { oauth2Client } = require('./utils/auth');
 const { verifyWebhook, handleWebhook } = require('./controllers/whatsappController');
 const { syncServicesFromSheet, initializeServices } = require('./utils/googleSheets');
-const adminRoutes= require('./routes/admin');
+const adminRoutes = require('./routes/admin');
+const {fetchZohoContacts} = require('./utils/zohoApi');
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -89,7 +91,29 @@ app.get('/oauth/callback', async (req, res) => {
   }
 });
 
-app.get('/zoho/callback', async (req, res) => {
+// ============= ZOHO CRM OAUTH =============
+// Redirect to Zoho authorization (one-time setup)
+app.get('/auth/zoho', (req, res) => {
+  const clientId = process.env.ZOHO_CLIENT_ID;
+  const redirectUri = process.env.ZOHO_REDIRECT_URI;
+  
+  if (!clientId || !redirectUri) {
+    return res.status(500).send('Zoho OAuth credentials not configured in .env');
+  }
+
+  const authUrl = `https://accounts.zoho.com/oauth/v2/auth?` +
+    `scope=ZohoCRM.modules.contacts.READ,ZohoCRM.modules.contacts.ALL,ZohoCRM.settings.ALL&` +
+    `client_id=${clientId}&` +
+    `response_type=code&` +
+    `access_type=offline&` +
+    `redirect_uri=${encodeURIComponent(redirectUri)}&` +
+    `prompt=consent`;
+  
+  res.redirect(authUrl);
+});
+
+// Zoho OAuth callback handler
+app.get('/zoho/oauth/callback', async (req, res) => {
   const { code } = req.query;
   
   if (!code) {
@@ -97,7 +121,7 @@ app.get('/zoho/callback', async (req, res) => {
   }
 
   try {
-    console.log('🔄 Exchanging code for tokens...');
+    console.log('🔄 Exchanging Zoho code for tokens...');
     
     const response = await fetch('https://accounts.zoho.com/oauth/v2/token', {
       method: 'POST',
@@ -106,9 +130,9 @@ app.get('/zoho/callback', async (req, res) => {
       },
       body: new URLSearchParams({
         code: code,
-        client_id: '1000.KZLXMNCUYOJFH0SZFCOYYXMG8NNYLM',
-        client_secret: 'a1dca2ba4a002c777180cfeb5f2f14c775af2750bf',
-        redirect_uri: 'https://catherin-postsaccular-rosann.ngrok-free.dev/zoho/callback',
+        client_id: process.env.ZOHO_CLIENT_ID,
+        client_secret: process.env.ZOHO_CLIENT_SECRET,
+        redirect_uri: process.env.ZOHO_REDIRECT_URI,
         grant_type: 'authorization_code',
       }),
     });
@@ -118,9 +142,6 @@ app.get('/zoho/callback', async (req, res) => {
     if (data.error) {
       throw new Error(data.error);
     }
-
-    console.log('✅ Tokens received!');
-    console.log('Refresh Token:', data.refresh_token);
 
     res.send(`
       <!DOCTYPE html>
@@ -212,21 +233,13 @@ app.get('/zoho/callback', async (req, res) => {
         <body>
           <div class="container">
             <div class="success-icon">✅</div>
-            <h1>Zoho Authorization Successful!</h1>
+            <h1>Zoho CRM Authorization Successful!</h1>
             
             <div class="token-box">
               <div class="token-label">🔑 Your Refresh Token:</div>
               <div class="token-value" id="refreshToken">${data.refresh_token}</div>
-              <button class="copy-btn" onclick="copyToken('refreshToken', 'Refresh Token')">
+              <button class="copy-btn" onclick="copyToken('refreshToken')">
                 📋 Copy Refresh Token
-              </button>
-            </div>
-
-            <div class="token-box">
-              <div class="token-label">⏱️ Access Token (Valid for 1 hour):</div>
-              <div class="token-value" id="accessToken">${data.access_token}</div>
-              <button class="copy-btn" onclick="copyToken('accessToken', 'Access Token')">
-                📋 Copy Access Token
               </button>
             </div>
 
@@ -235,28 +248,25 @@ app.get('/zoho/callback', async (req, res) => {
               <ol>
                 <li>Copy the <strong>Refresh Token</strong> above</li>
                 <li>Open your <code>.env</code> file</li>
-                <li>Add the configuration below</li>
+                <li>Add or update: <code>ZOHO_REFRESH_TOKEN=${data.refresh_token}</code></li>
                 <li>Restart your server</li>
-                <li>Test with: <code>node test-zoho.js</code></li>
+                <li>Test with: <code>GET /api/zoho/contacts</code></li>
               </ol>
             </div>
 
             <h3 style="margin-top: 30px;">Add to your .env file:</h3>
-            <div class="env-example" id="envConfig">ZOHO_CLIENT_ID=1000.KZLXMNCUYOJFH0SZFCOYYXMG8NNYLM
-ZOHO_CLIENT_SECRET=a1dca2ba4a002c777180cfeb5f2f14c775af2750bf
-ZOHO_REFRESH_TOKEN=${data.refresh_token}
-ZOHO_API_DOMAIN=https://www.zohoapis.com</div>
-            <button class="copy-btn" onclick="copyToken('envConfig', 'Environment Config')">
-              📋 Copy All Config
+            <div class="env-example" id="envConfig">ZOHO_REFRESH_TOKEN=${data.refresh_token}</div>
+            <button class="copy-btn" onclick="copyToken('envConfig')">
+              📋 Copy Token
             </button>
 
             <p style="margin-top: 30px; color: #718096; text-align: center;">
-              You can close this window now.
+              You can close this window and restart your server.
             </p>
           </div>
 
           <script>
-            function copyToken(elementId, name) {
+            function copyToken(elementId) {
               const element = document.getElementById(elementId);
               const text = element.textContent;
               
@@ -288,7 +298,7 @@ ZOHO_API_DOMAIN=https://www.zohoapis.com</div>
           <h1 style="color: #e53e3e;">❌ Authorization Failed</h1>
           <p style="color: #718096;">Error: ${error.message}</p>
           <p style="margin-top: 30px;">
-            <a href="https://accounts.zoho.com/oauth/v2/auth?scope=ZohoCRM.modules.ALL,ZohoCRM.settings.ALL,ZohoCRM.users.ALL&client_id=1000.KZLXMNCUYOJFH0SZFCOYYXMG8NNYLM&response_type=code&access_type=offline&redirect_uri=https://catherin-postsaccular-rosann.ngrok-free.dev/zoho/callback&prompt=consent" 
+            <a href="/auth/zoho" 
                style="background: #667eea; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px;">
               🔄 Try Again
             </a>
@@ -298,6 +308,44 @@ ZOHO_API_DOMAIN=https://www.zohoapis.com</div>
     `);
   }
 });
+
+// ============= ZOHO CRM API ENDPOINTS =============
+
+app.get('/api/zoho/contacts', async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const perPage = parseInt(req.query.per_page) || 200;
+
+    const contacts = await fetchZohoContacts(page, perPage);
+    
+    // Format contacts for your application
+    const formattedContacts = contacts.map(contact => ({
+      id: contact.id,
+      firstName: contact.First_Name,
+      lastName: contact.Last_Name,
+      fullName: `${contact.First_Name || ''} ${contact.Last_Name || ''}`.trim(),
+      phone: contact.Mobile || contact.Phone,
+      mobile: contact.Mobile,
+      email: contact.Email,
+      source: 'zoho_crm'
+    }));
+
+    res.json({
+      success: true,
+      count: formattedContacts.length,
+      page: page,
+      contacts: formattedContacts
+    });
+  } catch (error) {
+    console.error('❌ Error fetching Zoho contacts:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// ============= EXISTING ROUTES =============
 app.use(express.static('public'));
 app.use('/api/chat', chatRoutes);
 app.post('/api/chat/book', bookMeetingHandler);
@@ -407,10 +455,9 @@ app.post('/api/webhook/sheets-sync', async (req, res) => {
   }
 });
 
-
-
-
 // Start server
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
+  console.log(`📝 Zoho OAuth: http://localhost:${PORT}/auth/zoho`);
+  console.log(`📞 Zoho Contacts: http://localhost:${PORT}/api/zoho/contacts`);
 });
